@@ -1,0 +1,13 @@
+# 第三方仓库与产物（不入版本库）
+pi-mono/
+pi-agent/
+cairn-ref/
+ctf-agent-ref/
+koshary-ref/
+llmctf-ref/
+benchmarks/
+workspace/
+tmp/
+secrets/
+__pycache__/
+*.pyc

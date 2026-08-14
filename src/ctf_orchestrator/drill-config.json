@@ -1,0 +1,13 @@
+{
+  "category_routing": {
+    "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"},
+               {"model": "deepseek-v4-flash", "thinking": "minimal"}],
+    "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"}],
+    "web":    [{"model": "deepseek-v4-flash", "thinking": "low"}],
+    "pwn":    [{"model": "deepseek-v4-flash", "thinking": "low"},
+               {"model": "deepseek-v4-flash", "thinking": "minimal"}],
+    "default":[{"model": "deepseek-v4-flash", "thinking": "low"}]
+  },
+  "max_parallel_challenges": 4,
+  "race_workers_per_challenge": 2
+}
