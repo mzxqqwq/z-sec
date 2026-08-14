@@ -16,14 +16,29 @@ from typing import Any
 import requests
 
 # ---- flag 抽取（多正则 + 去重保序）----
+# 教训（CTFTiny L1 实测）：① csawctf 前缀的 flag 会被 ctf{ 模式截断 → 词边界必须防内嵌匹配
+# ② flag 内容可含空格（showdown 题）→ 字符类放宽 ③ 描述里的占位符（flag{path} 等）要过滤
 FLAG_PATTERNS: list[re.Pattern] = [
-    re.compile(rb"flag\{[0-9a-zA-Z_\-!@#$%^&*]{4,64}\}", re.I),
-    re.compile(rb"dasctf\{[0-9a-zA-Z_\-!@#$%^&*]{4,64}\}", re.I),
-    re.compile(rb"ctf\{[0-9a-zA-Z_\-!@#$%^&*]{4,64}\}", re.I),
-    re.compile(rb"[0-9a-f]{32}", re.I),
+    re.compile(rb"(?<![a-zA-Z0-9_])flag\{[^\r\n{}]{4,120}\}", re.I),
+    re.compile(rb"(?<![a-zA-Z0-9_])csawctf\{[^\r\n{}]{4,120}\}", re.I),
+    re.compile(rb"(?<![a-zA-Z0-9_])dasctf\{[^\r\n{}]{4,120}\}", re.I),
+    re.compile(rb"(?<![a-zA-Z0-9_])ctf\{[^\r\n{}]{4,120}\}", re.I),
+    re.compile(rb"(?<![a-zA-Z0-9_])[0-9a-f]{32}(?![0-9a-f])", re.I),
 ]
 
-CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+# 描述/教程里常见的占位符 flag，绝不提交
+PLACEHOLDER_FLAG_RES = [
+    re.compile(p, re.I) for p in (
+        r"^flag\{path\}$", r"^flag\{md5hash\}$", r"^flag\{sha256\}$",
+        r"^flag\{flag\}$", r"^flag\{here\}$", r"^flag\{your_flag\}$",
+        r"^flag\{\.{3}\}$", r"^flag\{\s*\.\.\.\s*\}$",
+        r"^ctf\{.*(?:example|placeholder|your_flag).*\}$",
+    )
+]
+
+
+def _is_placeholder(flag: str) -> bool:
+    return any(p.match(flag) for p in PLACEHOLDER_FLAG_RES)
 
 
 def extract_flags(text: bytes | str) -> list[str]:
@@ -35,9 +50,10 @@ def extract_flags(text: bytes | str) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for f in found:
-        if f not in seen:
-            seen.add(f)
-            out.append(f)
+        if f in seen or _is_placeholder(f):
+            continue
+        seen.add(f)
+        out.append(f)
     return out
 
 

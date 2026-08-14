@@ -1,0 +1,17 @@
+{
+  "category_routing": {
+    "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"}],
+    "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"}],
+    "rev":    [{"model": "deepseek-v4-flash", "thinking": "low"},
+               {"model": "deepseek-v4-flash", "thinking": "minimal"}],
+    "pwn":    [{"model": "deepseek-v4-pro",   "thinking": "medium"},
+               {"model": "deepseek-v4-flash", "thinking": "low"}],
+    "web":    [{"model": "deepseek-v4-pro",   "thinking": "medium"},
+               {"model": "deepseek-v4-flash", "thinking": "low"}],
+    "default":[{"model": "deepseek-v4-flash", "thinking": "low"}]
+  },
+  "max_parallel_challenges": 3,
+  "race_workers_per_challenge": 2,
+  "planning_enabled": true,
+  "triage_order": "easy-first"
+}

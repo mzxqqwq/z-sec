@@ -21,3 +21,13 @@
   僵局检测（工具名+参数签名 D2 / 输出 D3 / 错误率 D6 / idle，卡住即杀+带警告重派一次）、
   --only 定向调试参数
 - 修复：状态机非法迁移、planner 模板转义、同名工具误杀（签名化）
+
+## v0.3（P2 后：triage 排序 + 看板 + 人工复核 + 训练闭环，架构 v2.1 重构完成）
+- 2026-08-15，git commit 7e50d89（34 文件入库，src+docs 版本化）
+- 新能力：
+  - triage 先易后难排序（3h 抢分）
+  - Flask 看板 dashboard.py（8088）：题目状态/待复核候选/hints 写入/复核开关/日志尾部
+  - 人机回路文件协议：hints/<cid>.md、requests/confirm/<cid>.json、requests/verify/<cid>.toggle
+    （看板写 → 编排器每轮消费，端到端验证通过）
+  - 训练闭环 postmortem.py：失败模式统计 + 题型矩阵 + 工具错误排行 + 自动建议 + git 版本对应
+- 架构 v2.1 三大阶段（P0/P1/P2）全部完成，进入 benchmark 评测

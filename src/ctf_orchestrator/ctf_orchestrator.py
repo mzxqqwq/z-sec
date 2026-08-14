@@ -274,7 +274,7 @@ class Orchestrator:
                             self.board.save()
                             print(f"[{cid}] verify required: candidates {flags[:3]}")
                             break
-                        msg, ok = self.submit_policy.try_submit(self.board, cid, flag)
+                        msg, ok = self.submit_policy.try_submit_wait(self.board, cid, flag)
                         print(f"[{cid}] submit {flag[:24]}... -> {msg}")
                         if ok:
                             solved = True

@@ -66,6 +66,23 @@ class SubmissionPolicy:
             board.save()
             return f"incorrect ({cs.wrong_submits}/{self._max_wrong})", False
 
+    def try_submit_wait(self, board, cid: str, flag: str,
+                        max_wait: float = 200.0, max_retries: int = 4) -> tuple[str, bool]:
+        """try_submit 的等待版：遇到冷却则睡到冷却结束重试（防止候选 flag 被冷却吞掉）。"""
+        waited = 0.0
+        for _ in range(max_retries):
+            msg, ok = self.try_submit(board, cid, flag)
+            if ok or not msg.startswith("cooldown"):
+                return msg, ok
+            import re
+            m = re.search(r"(\d+)s", msg)
+            sleep_s = float(int(m.group(1)) + 1) if m else 16.0
+            if waited + sleep_s > max_wait:
+                return msg, False
+            time.sleep(sleep_s)
+            waited += sleep_s
+        return "cooldown retries exhausted", False
+
     @staticmethod
     def _is_correct(res: Any) -> bool:
         if hasattr(res, "accepted"):  # SubmitResult（platform.py）
