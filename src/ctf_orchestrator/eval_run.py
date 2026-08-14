@@ -48,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--categories", default="", help="逗号分隔: crypto,misc,rev,pwn,web")
     p.add_argument("--max-rounds", type=int, default=3)
     p.add_argument("--max-attempts", type=int, default=2)
+    p.add_argument("--config", default="", help="模型路由配置 JSON（默认 L1 配置）")
     p.add_argument("--kali-url", default="http://10.174.153.128:5000")
     p.add_argument("--mock-url", default="http://127.0.0.1:7788")
     args = p.parse_args(argv)
@@ -65,7 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     ws = Path(args.workspace)
     ws.mkdir(parents=True, exist_ok=True)
 
-    orch = Orchestrator(ws, platform, DEFAULT_PI_CMD, L1_CONFIG,
+    model_config = L1_CONFIG
+    if args.config and Path(args.config).exists():
+        import json as _json
+        model_config = _json.loads(Path(args.config).read_text(encoding="utf-8"))
+
+    orch = Orchestrator(ws, platform, DEFAULT_PI_CMD, model_config,
                         max_attempts=args.max_attempts)
 
     t0 = time.time()

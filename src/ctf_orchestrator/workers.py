@@ -36,6 +36,8 @@ PLACEHOLDER_FLAG_RES = [
     )
 ]
 
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
 
 def _is_placeholder(flag: str) -> bool:
     return any(p.match(flag) for p in PLACEHOLDER_FLAG_RES)
