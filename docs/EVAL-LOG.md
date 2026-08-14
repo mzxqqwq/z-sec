@@ -10,10 +10,18 @@
 - 备注：misc 927s 为模型随机绕圈（无僵局检测，P1 待修）；json 模式验证 v4-pro 修复路径
 - 新能力：状态机 6 态、递增提交冷却 [0,15,60,180]、去重、孤儿清理、事件级输出解析
 
-## 待记录
-- v0.2（P1：BasePlatform + 僵局双层 + 解析回退 + planning）
-- v0.3（P2：triage + 看板 + 复核开关 + 训练闭环）
-- 之后：CTFTiny/DASCTF benchmark 成绩
+## v0.3 首次真题评测（CTFTiny L1：8 道 easy，crypto/misc/rev）
+- 成绩 4/8：crypto 2/2 ✅、rev 2/4、misc 0/2
+- 发现并修复三大 bug：
+  1. csawctf{...} 前缀被 ctf{ 模式截断 → 加词边界+csawctf 模式（whataxor 因此失分）
+  2. 带空格的长 flag 被正则漏掉 → 字符类放宽（showdown 因此失分）
+  3. 描述占位符（flag{path}/flag{md5hash}）被当 flag 提交 → 占位符黑名单（ezmaze 错交）
+  4. 提交冷却吞掉后续候选 → try_submit_wait 等待重试
+- 结论：评测体系按设计工作——第一次跑真题就暴露了 4 个真问题
+
+## v0.4（L1 修复后）
+- git 版本：待记录
+- L1 重跑成绩：待记录
 
 ## v0.2（P1 后：BasePlatform + 规划器 + 签名式僵局检测 + 解析回退）
 - 2026-08-15：misc 66s / crypto 81s / pwn 111s / web 128s（4/4，web 单独复测确认无僵局误杀）

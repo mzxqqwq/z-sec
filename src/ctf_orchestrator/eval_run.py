@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workspace", default="D:/ctf-agent/eval-workspace")
     p.add_argument("--difficulty", default="", help="逗号分隔: very_easy,easy,moderate,hard")
     p.add_argument("--categories", default="", help="逗号分隔: crypto,misc,rev,pwn,web")
+    p.add_argument("--exclude", default="", help="逗号分隔 cid，跳过指定题")
     p.add_argument("--max-rounds", type=int, default=3)
     p.add_argument("--max-attempts", type=int, default=2)
     p.add_argument("--config", default="", help="模型路由配置 JSON（默认 L1 配置）")
@@ -59,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.platform == "ctftiny":
         platform = CtftinyPlatform(kali_url=args.kali_url,
                                    difficulties=difficulties,
-                                   categories=categories)
+                                   categories=categories,
+                                   exclude=[c.strip() for c in args.exclude.split(",") if c.strip()] or None)
     else:
         platform = MockHttpPlatform(args.mock_url)
 

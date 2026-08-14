@@ -57,14 +57,17 @@ class CtftinyPlatform(BasePlatform):
                  root: str = "/root/ctftiny",
                  difficulties: Optional[list[str]] = None,
                  categories: Optional[list[str]] = None,
+                 exclude: Optional[list[str]] = None,
                  max_files_mb: float = 20.0) -> None:
         self.kali_url = kali_url.rstrip("/")
         self.root = root
         self.difficulties = difficulties  # None = 全部
         self.categories = categories      # None = 全部
+        self.exclude = set(exclude or [])
         self.max_files_mb = max_files_mb
         self._meta: dict[str, dict[str, Any]] = {}
         self._details: dict[str, dict[str, Any]] = {}
+        self._dir_cache: dict[str, str] = {}
         self._load_meta()
 
     def _api(self, command: str, timeout: int = 300) -> dict[str, Any]:
@@ -89,12 +92,29 @@ class CtftinyPlatform(BasePlatform):
                 "year": entry.get("year", ""),
             }
 
+    def _resolve_dir(self, rel: str) -> str:
+        """目录名大小写不敏感解析（实测 ezmaze→ezMaze 等不一致）。"""
+        if rel in self._dir_cache:
+            return self._dir_cache[rel]
+        ok = self._api(f"test -d {self.root}/{rel} && echo OK", timeout=60).get("stdout", "").strip()
+        if ok == "OK":
+            self._dir_cache[rel] = rel
+            return rel
+        parent = str(Path(rel).parent)
+        base = Path(rel).name
+        found = self._api(
+            f"find {self.root}/{parent} -maxdepth 1 -type d -iname '{base}' 2>/dev/null | head -1",
+            timeout=60).get("stdout", "").strip()
+        resolved = found.replace(self.root + "/", "") if found else rel
+        self._dir_cache[rel] = resolved
+        return resolved
+
     def _detail(self, cid: str) -> dict[str, Any]:
         if cid not in self._details:
             meta = self._meta.get(cid)
             if meta is None:
                 return {}
-            rel = meta["path"]
+            rel = self._resolve_dir(meta["path"])
             out = self._api(f"cat {self.root}/{rel}/challenge.json 2>/dev/null")["stdout"]
             try:
                 self._details[cid] = json.loads(out) if out.strip() else {}
@@ -103,6 +123,8 @@ class CtftinyPlatform(BasePlatform):
         return self._details.get(cid, {})
 
     def _enabled(self, cid: str) -> bool:
+        if cid in self.exclude:
+            return False
         diff = DIFFICULTY.get(cid, "moderate")
         if self.difficulties and diff not in self.difficulties:
             return False
@@ -134,14 +156,16 @@ class CtftinyPlatform(BasePlatform):
                              dest_dir: Path) -> list[Path]:
         detail = self._detail(challenge.challenge_id)
         meta = self._meta.get(challenge.challenge_id, {})
-        rel = meta.get("path", "")
+        rel = self._resolve_dir(meta.get("path", ""))
         if not rel:
             return []
         paths: list[Path] = []
         dest_dir.mkdir(parents=True, exist_ok=True)
         for fname in detail.get("files") or []:
-            safe = Path(fname).name  # 防路径穿越
-            cmd = f"base64 -w0 {self.root}/{rel}/{safe} 2>/dev/null"
+            safe_rel = Path(str(fname).lstrip("./"))
+            if safe_rel.is_absolute() or ".." in safe_rel.parts:
+                continue  # 防路径穿越
+            cmd = f"base64 -w0 {self.root}/{rel}/{safe_rel} 2>/dev/null"
             res = self._api(cmd, timeout=600)
             b64 = (res.get("stdout") or "").strip()
             if not b64:
@@ -151,9 +175,9 @@ class CtftinyPlatform(BasePlatform):
             except Exception:
                 continue
             if len(data) > self.max_files_mb * 1024 * 1024:
-                print(f"[ctftiny] skip large file {safe} ({len(data)/1e6:.1f}MB)")
+                print(f"[ctftiny] skip large file {safe_rel} ({len(data)/1e6:.1f}MB)")
                 continue
-            out = dest_dir / safe
+            out = dest_dir / safe_rel.name
             out.write_bytes(data)
             paths.append(out)
         return paths
