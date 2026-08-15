@@ -39,6 +39,8 @@ class ChallengeState:
     verify_required: bool = False
     attempts: list[dict[str, Any]] = field(default_factory=list)
     wrong_submits: int = 0
+    # 完整竞速轮次计数（预算依据；attempts 含僵局击杀等审计记录，不计入预算）
+    races: int = 0
     # 提交纪律：去重 + 递增冷却
     submitted_flags: list[str] = field(default_factory=list)
     last_submit: float = 0.0
@@ -53,6 +55,7 @@ class ChallengeState:
             "triage": self.triage, "plan": self.plan,
             "verify_required": self.verify_required,
             "attempts": self.attempts, "wrong_submits": self.wrong_submits,
+            "races": self.races,
             "submitted_flags": self.submitted_flags,
             "last_submit": self.last_submit, "deadline": self.deadline,
             "hints_seen": self.hints_seen,
@@ -66,6 +69,7 @@ class ChallengeState:
         cs.verify_required = bool(item.get("verify_required", False))
         cs.attempts = item.get("attempts", [])
         cs.wrong_submits = int(item.get("wrong_submits", 0))
+        cs.races = int(item.get("races", len(cs.attempts)))
         cs.submitted_flags = item.get("submitted_flags", [])
         cs.last_submit = float(item.get("last_submit", 0.0))
         cs.deadline = float(item.get("deadline", 0.0))

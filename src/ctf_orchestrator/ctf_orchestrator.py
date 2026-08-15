@@ -164,11 +164,13 @@ class Orchestrator:
         if cs.status == STATUS_NEW:
             self._triage(cs)
             cs.transition(STATUS_QUEUED)
-        if len(cs.attempts) >= self.max_attempts:
+        # 预算按完整竞速轮次计（僵局击杀只记审计，不占预算）
+        if cs.races >= self.max_attempts:
             cs.transition(STATUS_DEAD)
             self.board.save()
-            print(f"[{cid}] attempts exhausted -> dead")
+            print(f"[{cid}] races exhausted -> dead")
             return
+        cs.races += 1
 
         cs.transition(STATUS_SOLVING)
         self.board.save()
