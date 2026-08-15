@@ -1,12 +1,10 @@
-"""状态机 v2.1 —— 每道题的生命周期与黑板持久化。
+"""状态机 v3（AK 导向定版）——每道题的生命周期与黑板持久化。
 
-状态流转：
-    new ──triage(轻量分类+难度)──▶ queued ──planning(LLM 拆解)──▶ solving
-    solving ──竞速出 flag──▶ solved
-    solving ──预算/僵局耗尽──▶ dead
-    solving ──人工介入──▶ needs_hint ──人工写 hints 后──▶ queued
-
-verify（人工复核）是 solving→solved 之间可选的关卡，由配置或人工开启。
+状态流转（定版后：无 dead、无 races 预算）：
+    new ──▶ solving（1 强 + 1 弱竞速）
+    solving ──▶ solved（交卷成功）
+    solving ──▶ needs_hint（未解，下轮自动续派 / 人工提示）
+    needs_hint ──▶ solving（续派或人工提示后重试）
 """
 from __future__ import annotations
 
@@ -20,7 +18,6 @@ STATUS_NEW = "new"
 STATUS_QUEUED = "queued"
 STATUS_SOLVING = "solving"
 STATUS_SOLVED = "solved"
-STATUS_DEAD = "dead"
 STATUS_NEEDS_HINT = "needs_hint"
 
 ACTIVE_STATUSES = (STATUS_NEW, STATUS_QUEUED, STATUS_SOLVING, STATUS_NEEDS_HINT)
@@ -37,6 +34,8 @@ class ChallengeState:
     plan: str | None = None
     # 人工复核开关：True 时 flag 提交前必须人工确认（看板操作）
     verify_required: bool = False
+    # Supervisor 维护的双层看板（T7）：ideas（方向假设）/ memory（事实与边界）
+    board: dict[str, Any] = field(default_factory=lambda: {"ideas": [], "memory": []})
     attempts: list[dict[str, Any]] = field(default_factory=list)
     wrong_submits: int = 0
     # 完整竞速轮次计数（预算依据；attempts 含僵局击杀等审计记录，不计入预算）
@@ -54,6 +53,7 @@ class ChallengeState:
             "cid": self.cid, "raw": self.raw, "status": self.status,
             "triage": self.triage, "plan": self.plan,
             "verify_required": self.verify_required,
+            "board": self.board,
             "attempts": self.attempts, "wrong_submits": self.wrong_submits,
             "races": self.races,
             "submitted_flags": self.submitted_flags,
@@ -64,9 +64,13 @@ class ChallengeState:
     @classmethod
     def from_dict(cls, item: dict[str, Any]) -> "ChallengeState":
         cs = cls(item["cid"], item.get("raw", {}), item.get("status", STATUS_NEW))
+        # 定版兼容：旧 state.json 里的 dead 一律映射为 needs_hint（不再有死题）
+        if cs.status == "dead":
+            cs.status = STATUS_NEEDS_HINT
         cs.triage = item.get("triage", {})
         cs.plan = item.get("plan")
         cs.verify_required = bool(item.get("verify_required", False))
+        cs.board = item.get("board") or {"ideas": [], "memory": []}
         cs.attempts = item.get("attempts", [])
         cs.wrong_submits = int(item.get("wrong_submits", 0))
         cs.races = int(item.get("races", len(cs.attempts)))
@@ -79,12 +83,11 @@ class ChallengeState:
     # ---- 状态迁移（唯一入口，带合法性断言）----
     def transition(self, new_status: str) -> None:
         legal = {
-            STATUS_NEW: (STATUS_QUEUED, STATUS_DEAD),
-            STATUS_QUEUED: (STATUS_SOLVING, STATUS_DEAD),
-            STATUS_SOLVING: (STATUS_SOLVED, STATUS_DEAD, STATUS_NEEDS_HINT, STATUS_QUEUED),
-            STATUS_NEEDS_HINT: (STATUS_QUEUED, STATUS_DEAD),
+            STATUS_NEW: (STATUS_QUEUED, STATUS_SOLVING, STATUS_NEEDS_HINT),
+            STATUS_QUEUED: (STATUS_SOLVING, STATUS_NEEDS_HINT),
+            STATUS_SOLVING: (STATUS_SOLVED, STATUS_NEEDS_HINT, STATUS_QUEUED),
+            STATUS_NEEDS_HINT: (STATUS_SOLVING, STATUS_QUEUED),
             STATUS_SOLVED: (),
-            STATUS_DEAD: (),
         }
         assert new_status in legal.get(self.status, ()), \
             f"illegal transition {self.status} -> {new_status} (cid={self.cid})"

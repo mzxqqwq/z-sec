@@ -1,8 +1,8 @@
-"""规划器（planning 阶段）——用便宜模型在派 worker 前生成解题计划。
+"""规划器（planning 阶段）——强模型在派 worker 前给出解题总体思路。
 
-设计参照 D-CIPHER 的 Planner 思想（arXiv 2502.10931）自研实现：
-一次轻量 LLM 调用，输出 3-6 步 JSON 计划，注入 worker 提示词。
-任何失败都优雅降级为 None（无计划 worker 照样能解）。
+定版（2026-08-16）：只出总体思路（核心方向 + 2-3 个关键要点），不列死板工具步骤；
+模型用强模型（deepseek-v4-pro）；无质量门禁、无失败重规划（纠偏交给 Supervisor 与人工 hint）。
+设计参照 D-CIPHER Planner 思想 + Koshary"plan 复用求解模型"实践（orchestrator.py:677-708）。
 """
 from __future__ import annotations
 
@@ -15,15 +15,20 @@ from typing import Any, Optional
 import requests
 
 PLAN_PROMPT = """\
-你是 CTF 解题规划师。阅读下面的题目信息，给出一个 3-6 步的解题计划。
-每步要具体可执行（用什么工具、试什么攻击、怎么验证）。
-只输出 JSON：{{"steps": ["步骤1", "步骤2", ...]}}
+你是 CTF 解题规划师。阅读下面的题目信息，给出解题的总体思路。
+
+要求：
+- 指出核心解题方向（这道题最可能的突破口）；
+- 给出路径上最关键 2-3 个要点或易错点；
+- 不要罗列死板的工具步骤——解题是动态尝试的过程，worker 会边做边调整。
+
+直接输出 3-6 行中文思路文本，不要输出 JSON，不要复述题目。
 
 题目信息：
 {challenge_json}
 """
 
-PLAN_MODEL = "deepseek-chat"
+PLAN_MODEL = "deepseek-v4-pro"  # 定版：强模型（pi 内置 deepseek provider 同款 id，直连 api.deepseek.com）
 PLAN_MAX_TOKENS = 700
 PLAN_TIMEOUT = 90  # 规划器不允许拖时间
 
@@ -56,7 +61,6 @@ class Planner:
             "messages": [{"role": "user", "content": PLAN_PROMPT.format(challenge_json=challenge_json)}],
             "max_tokens": PLAN_MAX_TOKENS,
             "temperature": 0.3,
-            "response_format": {"type": "json_object"},
         }
         try:
             r = requests.post(
@@ -66,11 +70,11 @@ class Planner:
             )
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"]
-            data = json.loads(content)
-            steps = data.get("steps")
-            if isinstance(steps, list) and steps:
-                lines = [f"{i+1}. {s}" for i, s in enumerate(steps[:6]) if isinstance(s, str)]
-                return "\n".join(lines)
+            text = content.strip()
+            # 思路型输出直接采用；长度兜底截断
+            if len(text) > 1200:
+                text = text[:1200]
+            return text or None
         except Exception as e:
             print(f"[planner] failed: {e}")
         return None

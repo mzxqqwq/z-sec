@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-ctf_orchestrator.py —— CTF 编排器 v2.1（P0：状态机 + json 模式 + 进程组杀 + 提交纪律）
+ctf_orchestrator.py —— CTF 编排器 v3（AK 导向定版，2026-08-16）
 
-模块：state.py（黑板+状态机）/ submit.py（提交纪律）/ workers.py（进程+解析）
+定版决策（docs/定版方案-最终.md）：
+- 删除 triage / races 预算 / dead 状态 / 僵局击杀 / 提交纪律（submit.py parked，平台规则回来再加）
+- 每道题 1 强 + 1 弱 worker 竞速；3 题并发；解不出自动续派（ralph-loop 语义）
+- 监督与纠偏由 supervisor.py（Observer 移植）负责，编排器不杀 worker
+模块：state.py（黑板）/ workers.py（进程+解析）/ planning.py（总体思路）
 用法不变：--once / --loop N / --workspace / --model-config / --pi-cmd
 """
 from __future__ import annotations
@@ -20,15 +24,14 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from state import Board, ChallengeState, STATUS_NEW, STATUS_QUEUED, STATUS_SOLVING, \
-    STATUS_SOLVED, STATUS_DEAD, STATUS_NEEDS_HINT  # noqa: E402
-from submit import SubmissionPolicy  # noqa: E402
+    STATUS_SOLVED, STATUS_NEEDS_HINT  # noqa: E402
 from workers import (kali_exec, kill_tree, parse_worker_output,  # noqa: E402
                      start_worker, cleanup_orphans)
 from platform import BasePlatform, MockHttpPlatform  # noqa: E402
 from planning import Planner  # noqa: E402
-from stuck import StuckMonitor  # noqa: E402
+from supervisor import Supervisor  # noqa: E402
 
-WORKER_TIMEOUT = 1500  # 单个 worker 硬上限（P1 引入逐题预算后收紧）
+WORKER_TIMEOUT = 1500  # 单个 worker 硬上限
 # 直接调 node cli.js，不经 PowerShell：
 # PowerShell 5.1 把含双引号的原生参数转发给 node 时会拆成多个 argv
 # （prompt 里的 "FLAG: ..." / 题目 JSON / 计划 JSON 全带引号），
@@ -41,19 +44,12 @@ DEFAULT_PI_CMD = [
     "-e", r"D:\ctf-agent\src\pi-ext\kali.ts",
 ]
 
+# 定版：无题型路由，每道题固定 1 强 + 1 弱
 DEFAULT_MODEL_CONFIG = {
-    "category_routing": {
-        "web":    [{"model": "deepseek-v4-pro",   "thinking": "high"},
-                   {"model": "deepseek-v4-flash", "thinking": "low"}],
-        "pwn":    [{"model": "deepseek-v4-pro",   "thinking": "high"},
-                   {"model": "deepseek-v4-flash", "thinking": "low"}],
-        "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "rev":    [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "default":[{"model": "deepseek-v4-flash", "thinking": "low"}],
-    },
+    "strong": {"model": "deepseek-v4-pro", "thinking": "medium"},
+    "weak": {"model": "deepseek-v4-flash", "thinking": "low"},
     "max_parallel_challenges": 3,
-    "race_workers_per_challenge": 2,
+    "planning_enabled": True,
 }
 
 SOLVE_PROMPT_TEMPLATE = """\
@@ -69,15 +65,28 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 你可以自由地写脚本、运行工具、连网络服务。解题成功后，用
 "FLAG: <flag内容>" 一行输出最终答案。
 
+【重要契约】
+- 如果题目有多个 flag，不要因为提交对一个就停止，直到平台明确显示题目完成。
+- 不要过早宣布失败；一条路线失败时换思路继续，而不是放弃。
+
 {plan_section}
+{continuation_section}
+{board_section}
+{reminder_section}
 {human_hints}
+"""
+
+CONTINUATION_MESSAGE = """\
+【续跑提示】你之前的一次尝试没有解出这道题。继续当前任务：
+- 不要重复已经完成的步骤，基于你的新上下文继续推进；
+- 如果上次方向已经排除，换一个完全不同的方向（检查遗漏的附件、端口、参数）。
 """
 
 
 class Orchestrator:
     def __init__(self, workspace: Path, platform: BasePlatform, pi_cmd: list[str],
                  model_config: dict[str, Any],
-                 max_attempts: int = 2, max_wrong_submits: int = 3,
+                 max_attempts: int = 3,
                  only: set[str] | None = None) -> None:
         self.ws = workspace
         self.ws.mkdir(parents=True, exist_ok=True)
@@ -86,9 +95,9 @@ class Orchestrator:
         self.platform = platform
         self.pi_cmd = pi_cmd
         self.model_config = model_config
+        # max_attempts 语义（定版后）：单题连续未解的自动续派上限（ralph-loop 层预算）
         self.max_attempts = max_attempts
         self.board = Board(workspace / "state.json")
-        self.submit_policy = SubmissionPolicy(self._platform_submit, max_wrong_submits)
         self.only = only
         self._challenges: dict[str, Any] = {}  # cid -> NormalizedChallenge（内存注册表）
         try:
@@ -97,6 +106,12 @@ class Orchestrator:
         except Exception as e:
             print(f"[planner] disabled: {e}")
             self.planner = Planner("", enabled=False)
+        try:
+            self.supervisor = Supervisor(Planner.load_key_from_secrets(),
+                                         enabled=bool(model_config.get("supervisor_enabled", True)))
+        except Exception as e:
+            print(f"[supervisor] disabled: {e}")
+            self.supervisor = Supervisor("", enabled=False)
 
     # ---------- 平台 ----------
     def _platform_submit(self, cid: str, flag: str) -> Any:
@@ -104,6 +119,33 @@ class Orchestrator:
         if ch is None:
             raise ValueError(f"unknown challenge {cid}")
         return self.platform.submit_flag(ch, flag)
+
+    # ---------- 提交（定版：直接提交，无纪律；平台规则回来后再接 submit.py） ----------
+    @staticmethod
+    def _submission_accepted(res: Any) -> bool:
+        if hasattr(res, "accepted"):
+            return bool(res.accepted)
+        if isinstance(res, dict):
+            return bool(res.get("correct") or res.get("success") or res.get("accepted"))
+        return res is True
+
+    def _submit_direct(self, cid: str, flag: str) -> tuple[str, bool]:
+        cs = self.board.get(cid)
+        if cs is None:
+            return "unknown challenge", False
+        if cs.status == STATUS_SOLVED:
+            return "already solved", True
+        try:
+            res = self._platform_submit(cid, flag)
+        except Exception as e:
+            return f"submit error: {e}", False
+        ok = self._submission_accepted(res)
+        if ok:
+            cs.transition(STATUS_SOLVED)
+            self.board.save()
+            return "correct", True
+        msg = getattr(res, "message", "") if hasattr(res, "message") else ""
+        return f"incorrect ({msg})", False
 
     def _sync(self) -> int:
         new_count = 0
@@ -115,17 +157,6 @@ class Orchestrator:
                 new_count += 1
         return new_count
 
-    # ---------- triage 轻量版（P2 换完整版） ----------
-    def _triage(self, cs: ChallengeState) -> None:
-        cat = (cs.raw.get("category") or "unknown").lower()
-        points = cs.raw.get("points")
-        try:
-            pts = float(points) if points is not None else 0
-        except (TypeError, ValueError):
-            pts = 0
-        difficulty = "easy" if pts <= 150 else ("medium" if pts <= 400 else "hard")
-        cs.triage = {"category_guess": cat, "points": pts, "difficulty_guess": difficulty}
-
     # ---------- hints ----------
     def _hints(self, cid: str) -> str:
         hint_file = self.ws / "hints" / f"{cid}.md"
@@ -133,14 +164,27 @@ class Orchestrator:
             return "\n\n【人工提示（最新优先）】\n" + hint_file.read_text(encoding="utf-8")
         return ""
 
-    # ---------- worker 配置 ----------
+    # ---------- worker 配置（定版：1 强 + 1 弱，无题型路由） ----------
     def _worker_configs(self, cs: ChallengeState) -> list[dict[str, str]]:
-        cat = cs.triage.get("category_guess", "default")
-        routing = self.model_config.get("category_routing", {})
-        configs = routing.get(cat) or routing.get("default") or \
-            [{"model": "deepseek-v4-flash", "thinking": "low"}]
-        race = int(self.model_config.get("race_workers_per_challenge", 1))
-        return configs[:max(1, race)]
+        strong = self.model_config.get("strong") or {"model": "deepseek-v4-pro", "thinking": "medium"}
+        weak = self.model_config.get("weak") or {"model": "deepseek-v4-flash", "thinking": "low"}
+        return [strong, weak]
+
+    # ---------- 策略看板摘要（T7：Observer 写、worker 只读） ----------
+    @staticmethod
+    def _board_section(cs: ChallengeState) -> str:
+        ideas = cs.board.get("ideas", []) or []
+        memory = cs.board.get("memory", []) or []
+        if not ideas and not memory:
+            return ""
+        lines = ["\n\n【策略看板（Observer 维护，供参考；与你的实测冲突时以实测为准）】"]
+        if ideas:
+            parts = [f"[{i.get('status','pending')}] {i.get('content','')}" for i in ideas[:8]]
+            lines.append("待验证方向：" + "；".join(parts))
+        if memory:
+            parts = [f"[{m.get('kind','fact')}] {m.get('content','')}" for m in memory[:12]]
+            lines.append("已知事实/边界：" + "；".join(parts))
+        return "\n".join(lines)
 
     # ---------- 附件同步（Windows → Kali） ----------
     def _sync_attachments(self, cid: str, workdir: Path, remote_root: str) -> None:
@@ -163,31 +207,29 @@ class Orchestrator:
         except Exception as e:
             print(f"[{cid}] kali sync failed: {e}")
 
-    # ---------- 单题竞速 ----------
+    # ---------- 单题竞速（定版：无僵局击杀、无预算判死；解不出自动续派） ----------
     def _run_one(self, cid: str) -> None:
         cs = self.board.get(cid)
         if cs is None or cs.status not in (STATUS_NEW, STATUS_QUEUED, STATUS_NEEDS_HINT):
             return
-        if cs.status == STATUS_NEW:
-            self._triage(cs)
-            cs.transition(STATUS_QUEUED)
-        # 预算按完整竞速轮次计（僵局击杀只记审计，不占预算）
-        if cs.races >= self.max_attempts:
-            cs.transition(STATUS_DEAD)
+        # 连续未解续派预算：超过后停在 needs_hint 等人工提示（ralph-loop 层预算）
+        if cs.status == STATUS_NEEDS_HINT and len(cs.attempts) >= self.max_attempts * 2:
             self.board.save()
-            print(f"[{cid}] races exhausted -> dead")
+            print(f"[{cid}] waiting human hint (auto retries exhausted)")
             return
-        cs.races += 1
 
         cs.transition(STATUS_SOLVING)
         self.board.save()
 
         workdir = self.ws / "challenges" / cid
         workdir.mkdir(parents=True, exist_ok=True)
-        remote_root = f"/root/ctf/{cid}"
-        self._sync_attachments(cid, workdir, remote_root)
+        remote_base = f"/root/ctf/{cid}"
+        # 定版：每 worker 独立远程目录 w<idx>（防同题双 worker 文件互踩）
+        remote_roots = {i: f"{remote_base}/w{i}" for i in range(len(self._worker_configs(cs)))}
+        for root in remote_roots.values():
+            self._sync_attachments(cid, workdir, root)
 
-        # ---- planning（P1：派 worker 前先让便宜模型出解题计划）----
+        # ---- planning（强模型出总体思路）----
         if cs.plan is None:
             cs.plan = self.planner.plan(
                 cid, json.dumps(cs.raw, ensure_ascii=False, indent=2), len(cs.attempts))
@@ -196,15 +238,20 @@ class Orchestrator:
 
         plan_section = ""
         if cs.plan:
-            plan_section = f"\n\n【解题计划（规划器产出）】\n{cs.plan}"
+            plan_section = f"\n\n【解题思路（规划器产出）】\n{cs.plan}"
+        continuation_section = CONTINUATION_MESSAGE if cs.attempts else ""
+        board_section = self._board_section(cs)
+        reminder_section = ""
+        if cs.triage.get("supervisor_reminder"):
+            reminder_section = f"\n\n【Observer 纠偏提醒】\n{cs.triage['supervisor_reminder']}"
+            cs.triage["supervisor_reminder"] = ""
         base_prompt = SOLVE_PROMPT_TEMPLATE.format(
             challenge_json=json.dumps(cs.raw, ensure_ascii=False, indent=2),
             plan_section=plan_section,
+            continuation_section=continuation_section,
+            board_section=board_section,
+            reminder_section=reminder_section,
             human_hints=self._hints(cid))
-
-        LOOP_WARNING = ("\n\n【重要】你上一次运行陷入重复循环被强制终止。"
-                        "不要重复相同的命令。换一个完全不同的思路："
-                        "检查遗漏的线索（附件、端口、参数），或换一种工具/方法。")
 
         configs = self._worker_configs(cs)
         print(f"[{cid}] race: {len(configs)} workers "
@@ -212,19 +259,15 @@ class Orchestrator:
 
         procs: dict[Any, dict[str, Any]] = {}
         starts: dict[Any, float] = {}
-        monitors: dict[Any, StuckMonitor] = {}
-        stuck_killed: set[Any] = set()
-        replacement_used = False
 
         def dispatch(idx: int, cfg: dict[str, str], prompt: str) -> None:
             tag = f"{cfg['model']}:{cfg['thinking']}".replace("/", "_").replace(":", "-")
             log_path = workdir / f"worker_{idx}_{tag}.log"
             cmd = (self.pi_cmd + ["--model", cfg["model"], "--thinking", cfg["thinking"],
-                                  "--mode", "json", "--kali", remote_root, "-p", prompt])
+                                  "--mode", "json", "--kali", remote_roots[idx], "-p", prompt])
             proc = start_worker(cmd, workdir, log_path)
             procs[proc] = {**cfg, "log": log_path, "idx": idx}
             starts[proc] = time.time()
-            monitors[proc] = StuckMonitor(log_path)
             print(f"[{cid}] worker {idx} started: {tag} (pid {proc.pid})")
 
         for i, cfg in enumerate(configs):
@@ -233,30 +276,18 @@ class Orchestrator:
         solved = False
         deadline = time.time() + WORKER_TIMEOUT
         while procs and not solved and time.time() < deadline:
-            # ---- 僵局监测：实时读 worker 事件流，卡住即杀 ----
-            for p in list(procs):
-                if p.poll() is not None or p in stuck_killed:
-                    continue
-                monitors[p].poll()
-                stuck, reason = monitors[p].is_stuck(alive=True)
-                elapsed = time.time() - starts[p]
-                if stuck and elapsed > 120 and p not in stuck_killed:
-                    stuck_killed.add(p)
-                    meta = procs.pop(p)
-                    summary = monitors[p].summarize()
-                    print(f"[{cid}] STUCK[{reason}] killing worker "
-                          f"{meta['model']} after {elapsed:.0f}s "
-                          f"(calls={summary['total_tool_calls']}, err={summary['error_rate']:.0%})")
-                    kill_tree(p)
-                    cs.attempts.append({"at": time.time(), "elapsed": elapsed,
-                                        "worker": f"{meta['model']}:{meta['thinking']}",
-                                        "stuck_reason": reason, "flags": []})
-                    self.board.save()
-                    if not replacement_used and cs.status == STATUS_SOLVING:
-                        replacement_used = True
-                        if configs:
-                            dispatch(len(configs), configs[0], base_prompt + LOOP_WARNING)
-                            print(f"[{cid}] replacement worker dispatched with loop warning")
+            # ---- Supervisor 旁路审查（6 轮节奏，只纠偏不杀 worker）----
+            for meta in procs.values():
+                self.supervisor.feed_log(cid, meta["log"])
+            changed, reminder = self.supervisor.maybe_review(cid, cs.raw, cs.board)
+            if changed:
+                self.board.save()
+                print(f"[{cid}] supervisor updated board "
+                      f"(ideas={len(cs.board['ideas'])}, memory={len(cs.board['memory'])})")
+            if reminder:
+                cs.triage["supervisor_reminder"] = reminder
+                self.board.save()
+                print(f"[{cid}] supervisor reminder: {reminder[:80]}...")
 
             finished = [p for p in procs if p.poll() is not None]
             for p in finished:
@@ -283,7 +314,7 @@ class Orchestrator:
                             self.board.save()
                             print(f"[{cid}] verify required: candidates {flags[:3]}")
                             break
-                        msg, ok = self.submit_policy.try_submit_wait(self.board, cid, flag)
+                        msg, ok = self._submit_direct(cid, flag)
                         print(f"[{cid}] submit {flag[:24]}... -> {msg}")
                         if ok:
                             solved = True
@@ -293,6 +324,7 @@ class Orchestrator:
             time.sleep(2)
 
         # ---- 循环结束清理：未解且 deadline 到点 → 强杀剩余 worker（防孤儿/日志撞名）----
+        live_logs = [m["log"] for m in procs.values()]
         if not solved:
             for p in list(procs):
                 meta = procs.pop(p)
@@ -309,10 +341,23 @@ class Orchestrator:
                 kill_tree(p)
             print(f"[{cid}] race won; other workers terminated")
         else:
-            if cs.status == STATUS_SOLVING:
-                cs.transition(STATUS_QUEUED)  # 下一轮再试（预算内）
+            # ---- race 结束审查（agent_end 等价触发）----
+            for lp in live_logs:
+                self.supervisor.feed_log(cid, lp)
+            changed, reminder = self.supervisor.maybe_review(cid, cs.raw, cs.board,
+                                                             trigger="race_end")
+            if changed:
                 self.board.save()
-            print(f"[{cid}] race finished unsolved")
+                print(f"[{cid}] supervisor race-end review updated board")
+            if reminder and not cs.triage.get("supervisor_reminder"):
+                cs.triage["supervisor_reminder"] = reminder
+                self.board.save()
+                print(f"[{cid}] supervisor reminder (race-end): {reminder[:80]}...")
+            # 未解 → needs_hint；下一轮自动续派（ralph-loop 语义：不放弃）
+            if cs.status == STATUS_SOLVING:
+                cs.transition(STATUS_NEEDS_HINT)
+                self.board.save()
+            print(f"[{cid}] unsolved; will auto-continue next round")
 
     # ---------- 人工请求协议（看板/人工通过文件与本进程通信，无锁竞态） ----------
     def _process_requests(self) -> None:
@@ -330,7 +375,7 @@ class Orchestrator:
             f.unlink(missing_ok=True)
             if not flag or cs is None or cs.status == STATUS_SOLVED:
                 continue
-            msg, ok = self.submit_policy.try_submit(self.board, cid, flag)
+            msg, ok = self._submit_direct(cid, flag)
             print(f"[confirm] {cid} -> {msg}")
 
         verify_dir = req_dir / "verify"
@@ -353,11 +398,6 @@ class Orchestrator:
         open_cids = self.board.open_cids()
         if self.only:
             open_cids = [c for c in open_cids if c in self.only]
-        # triage 排序：先易后难（3 小时抢分策略）
-        if self.model_config.get("triage_order", "easy-first") == "easy-first":
-            order = {"easy": 0, "medium": 1, "hard": 2, "unknown": 1}
-            open_cids.sort(key=lambda c: order.get(
-                (self.board.get(c) or ChallengeState(c, {})).triage.get("difficulty_guess", "unknown"), 1))
         max_par = int(self.model_config.get("max_parallel_challenges", 3))
         with ThreadPoolExecutor(max_workers=max_par) as pool:
             list(pool.map(self._run_one, open_cids))

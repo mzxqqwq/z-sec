@@ -27,18 +27,10 @@ from cybench_platform import CybenchPlatform  # noqa: E402
 from platform import MockHttpPlatform  # noqa: E402
 
 L1_CONFIG = {
-    "category_routing": {
-        "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "rev":    [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "pwn":    [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "web":    [{"model": "deepseek-v4-flash", "thinking": "low"}],
-        "default":[{"model": "deepseek-v4-flash", "thinking": "low"}],
-    },
+    "strong": {"model": "deepseek-v4-pro", "thinking": "medium"},
+    "weak": {"model": "deepseek-v4-flash", "thinking": "low"},
     "max_parallel_challenges": 2,
-    "race_workers_per_challenge": 1,
     "planning_enabled": True,
-    "triage_order": "easy-first",
 }
 
 
