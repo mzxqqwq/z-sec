@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -294,6 +295,9 @@ def start(bench_id: str, filters: dict[str, Any] | None = None) -> tuple[bool, s
         cmd = [sys.executable, "-X", "utf8", str(EVAL_RUN),
                *d["args"], "--workspace", str(BENCH_WS),
                "--config", str(L2_CONFIG)]
+        # 服务题本地复活开关：CTF_REVIVE=1 时对 dead 服务题用 Kali podman 起容器
+        if os.environ.get("CTF_REVIVE") == "1":
+            cmd.append("--revive")
         if filters.get("difficulty"):
             cmd += ["--difficulty", str(filters["difficulty"])]
         if filters.get("categories"):

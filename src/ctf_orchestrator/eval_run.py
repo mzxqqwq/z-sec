@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
                         "NYU 全量用 D:/ctf-agent/benchmarks/nyu-ctf-bench）")
     p.add_argument("--bench-meta", default="",
                    help="题库元数据文件名，逗号分隔（默认 ctftiny.json；NYU 用 test_dataset.json）")
+    p.add_argument("--revive", action="store_true",
+                   help="靶机已停的服务题用 Kali podman 本地复活（需先跑 pull-service-images.sh）")
     args = p.parse_args(argv)
 
     difficulties = [d.strip() for d in args.difficulty.split(",") if d.strip()] or None
@@ -67,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
             kwargs["root"] = args.bench_root
         if args.bench_meta:
             kwargs["meta_files"] = tuple(m.strip() for m in args.bench_meta.split(",") if m.strip())
+        if args.revive:
+            kwargs["revive"] = True
         platform = CtftinyPlatform(**kwargs)
     elif args.platform == "cybench":
         platform = CybenchPlatform(
@@ -106,16 +110,23 @@ def main(argv: list[str] | None = None) -> int:
     orch.start_worker_api()
 
     t0 = time.time()
-    for round_no in range(1, args.max_rounds + 1):
-        before = json.dumps({c: s.status for c, s in orch.board.challenges.items()},
-                            sort_keys=True)
-        orch.run_round()
-        after = json.dumps({c: s.status for c, s in orch.board.challenges.items()},
-                           sort_keys=True)
-        open_left = len(orch.board.open_cids())
-        print(f"== round {round_no} done, open left: {open_left}, elapsed {time.time()-t0:.0f}s")
-        if open_left == 0 or before == after:
-            break
+    try:
+        for round_no in range(1, args.max_rounds + 1):
+            before = json.dumps({c: s.status for c, s in orch.board.challenges.items()},
+                                sort_keys=True)
+            orch.run_round()
+            after = json.dumps({c: s.status for c, s in orch.board.challenges.items()},
+                               sort_keys=True)
+            open_left = len(orch.board.open_cids())
+            print(f"== round {round_no} done, open left: {open_left}, elapsed {time.time()-t0:.0f}s")
+            if open_left == 0 or before == after:
+                break
+    finally:
+        # 停掉本 run 复活的全部服务容器（Kali podman）
+        try:
+            platform.close()
+        except Exception as e:
+            print(f"[revive] cleanup error: {e}")
 
     # 成绩单
     solved = [cs for cs in orch.board.challenges.values() if cs.status == "solved"]

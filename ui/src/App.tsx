@@ -93,8 +93,8 @@ function StarGrid({ challenges, onOpen }: {
             <span className="star-card-title">{c.name || c.cid}</span>
             {c.connection && (
               <span className={`cat-badge ${c.liveness === "dead" ? "cat-dead" : c.liveness === "alive" ? "cat-pwn" : "cat-misc"}`}
-                title={`远程服务 ${c.connection}（${c.liveness === "dead" ? "探测已停" : c.liveness === "alive" ? "在线" : "未探测"}）`}>
-                {c.liveness === "dead" ? "靶机已停" : "靶机"}
+                title={`远程服务 ${c.connection}（${c.liveness === "dead" ? "探测已停" : c.revived ? "本地已复活" : c.liveness === "alive" ? "在线" : "未探测"}）`}>
+                {c.liveness === "dead" ? "靶机已停" : c.revived ? "靶机·复活" : "靶机"}
               </span>
             )}
             <CategoryBadge category={c.category} />
@@ -492,8 +492,8 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
           {challenge && <CategoryBadge category={challenge.category} />}
           {challenge?.connection && (
             <span className={`cat-badge ${challenge.liveness === "dead" ? "cat-dead" : challenge.liveness === "alive" ? "cat-pwn" : "cat-misc"}`}
-              title={`远程服务 ${challenge.connection}（${challenge.liveness === "dead" ? "探测已停" : challenge.liveness === "alive" ? "在线" : "未探测"}）`}>
-              {challenge.liveness === "dead" ? "靶机已停" : "靶机"} {challenge.connection}
+              title={`远程服务 ${challenge.connection}（${challenge.liveness === "dead" ? "探测已停" : challenge.revived ? "本地已复活" : challenge.liveness === "alive" ? "在线" : "未探测"}）`}>
+              {challenge.liveness === "dead" ? "靶机已停" : challenge.revived ? "靶机·复活" : "靶机"} {challenge.connection}
             </span>
           )}
           <span className="muted" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>

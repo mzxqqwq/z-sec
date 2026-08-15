@@ -14,6 +14,7 @@ export interface ChallengeView {
   digest_first: string
   connection: string
   liveness: string
+  revived: boolean
 }
 
 export interface Summary {

@@ -190,6 +190,7 @@ def _challenge_view(c: dict, log_dir: Path | None = None) -> dict:
         "digest_first": str(raw.get("description", "") or "")[:80],
         "connection": str(raw.get("connection") or ""),
         "liveness": str(raw.get("liveness") or "unknown"),
+        "revived": bool(raw.get("revived")),
     }
 
 
@@ -500,6 +501,7 @@ def _challenge_view_ws(c: dict, ws: Path) -> dict:
         "digest_first": str(raw.get("description", "") or "")[:80],
         "connection": str(raw.get("connection") or ""),
         "liveness": str(raw.get("liveness") or "unknown"),
+        "revived": bool(raw.get("revived")),
     }
 
 

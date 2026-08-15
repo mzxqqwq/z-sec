@@ -116,7 +116,8 @@ class CtftinyPlatform(BasePlatform):
                  difficulties: Optional[list[str]] = None,
                  categories: Optional[list[str]] = None,
                  exclude: Optional[list[str]] = None,
-                 max_files_mb: float = 20.0) -> None:
+                 max_files_mb: float = 20.0,
+                 revive: bool = False) -> None:
         self.kali_url = kali_url.rstrip("/")  # 保留：worker 运行时健康检查等仍用它
         self.root = Path(root)
         self.meta_files = meta_files  # 元数据文件（ctftiny.json 或 test_dataset.json 等，可多个合并）
@@ -124,11 +125,40 @@ class CtftinyPlatform(BasePlatform):
         self.categories = categories      # None = 全部
         self.exclude = set(exclude or [])
         self.max_files_mb = max_files_mb
+        self.revive = revive  # True = 靶机已停的服务题尝试用 Kali podman 本地复活
         self._meta: dict[str, dict[str, Any]] = {}
         self._details: dict[str, dict[str, Any]] = {}
         self._dir_cache: dict[str, str] = {}
         self._liveness: dict[str, str] = {}  # cid -> alive/dead/unknown（每 run 缓存）
+        self._reviver: Any = None            # ServiceReviver（惰性创建）
+        self._revived: dict[str, int] = {}   # cid -> Kali 本地映射端口
         self._load_meta()
+
+    def _try_revive(self, cid: str, meta: dict[str, Any], box: str,
+                    port_i: Optional[int]) -> Optional[int]:
+        """dead 服务题 → 尝试 podman 本地复活；成功返回 Kali 本地端口，失败 None。"""
+        try:
+            if self._reviver is None:
+                from revival import ServiceReviver
+                self._reviver = ServiceReviver(self.kali_url, enabled=True)
+            ok, hp, err = self._reviver.revive(cid, meta.get("path", ""), port_i)
+        except Exception as e:
+            ok, hp, err = False, None, f"reviver error: {e}"
+        if ok and hp:
+            print(f"[revive] {cid} {box}:{port_i} -> 127.0.0.1:{hp}")
+        else:
+            print(f"[revive] {cid} {box}:{port_i} FAIL ({err})")
+        return int(hp) if ok and hp else None
+
+    def close(self) -> None:
+        """评测结束：停掉本 run 复活的全部容器（--rm 自动清理）。"""
+        if self._reviver is not None:
+            try:
+                n = self._reviver.stop_all()
+                if n:
+                    print(f"[revive] stopped {n} challenge container(s)")
+            except Exception as e:
+                print(f"[revive] cleanup error: {e}")
 
     # ---------- 本地文件访问 ----------
     def _local(self, rel: str) -> Path:
@@ -256,10 +286,20 @@ class CtftinyPlatform(BasePlatform):
                 port_i = int(port) if port is not None else None
             except (TypeError, ValueError):
                 port_i = None
+            # 已复活的题目：后续轮次沿用 Kali 本地端点（不再读原始 box）
+            if cid in self._revived:
+                box, port_i = "127.0.0.1", self._revived[cid]
             liveness = self._liveness.get(cid)
             if liveness is None:
                 liveness = liveness_of(box, port_i) if box else "unknown"
                 self._liveness[cid] = liveness
+            # 服务题本地复活：dead 且开启 revive 时，用 Kali podman 起容器并覆盖连接点
+            if liveness == "dead" and self.revive and box:
+                hp = self._try_revive(cid, meta, box, port_i)
+                if hp:
+                    box, port_i, liveness = "127.0.0.1", hp, "alive"
+                    self._liveness[cid] = "alive"
+                    self._revived[cid] = hp
             out.append(NormalizedChallenge(
                 platform=self.name,
                 challenge_id=cid,
@@ -272,7 +312,8 @@ class CtftinyPlatform(BasePlatform):
                 host=box or None,
                 port=port_i,
                 raw={**meta, "difficulty": DIFFICULTY.get(cid, "moderate"),
-                     "liveness": liveness},
+                     "liveness": liveness,
+                     "revived": cid in self._revived},
             ))
         return out
 
