@@ -71,7 +71,9 @@ class DasctfEvalPlatform(BasePlatform):
                 platform=self.name,
                 challenge_id=e["name"],
                 name=e["name"],
-                category=(e.get("category") or "misc").lower(),
+                # manifest 用 "re"，编排器路由表键是 "rev" → 统一映射
+                category={"re": "rev"}.get((e.get("category") or "misc").lower(),
+                                          (e.get("category") or "misc").lower()),
                 description=desc,
                 points=e.get("difficulty", ""),
                 files=[str(f) for f in e.get("files", [])],

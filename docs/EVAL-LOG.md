@@ -16,6 +16,8 @@
 | v0.9 | L2b-r2/r3 | 9/13 → 0/13 | r3 因 Kali API 崩溃全部工具报错（环境事故） |
 | v0.10 | **L2b-r4 最终回归** | **11/13（85%）** | v4-pro 双杀 describeme+bigboy；rev 7/7 |
 | v0.11-fix | polly 隔离后复测（题库迁本地+Kali 已删） | 1/1 但**非能力解** | v4-pro 616s 交真值；审计日志发现 flag 来自 curl osirislab 公开仓库 flag.txt → 归类 **OSINT 查解**（联网查公开题解，真实 CTF 合法但不算密码能力） |
+| v0.11-fix | Steganography 诚实复测（description 置空后） | **0/1** | 双 race 全挂：RC4→像素 LSB→cloacked-pixel→DFT 盲水印 4 层链超出 flash 能力（错误率 38-50%，identical-output 僵局击杀）——真实能力边界确认 |
+| v0.11-fix | androidfff 复测（第一跑） | 无效 | Kali API 第二次崩溃，工具全断（环境事故，非能力）→ 修复 re→rev 路由后重跑 |
 
 **能力画像**：easy 15/15（100%）· moderate 11/13（85%）· DASCTF 实战难度 3/7（43%）
 ——上述历史成绩含两处泄漏加成（见下方完整性注），以修复后的复测为准重新标定中。
@@ -36,6 +38,7 @@
 | v0.11 | **评测完整性事故**：worker 在 Kali 直读 `/root/ctftiny/.../challenge.json` 拿到真值 flag（polly "解出"系作弊） | 题库数据全部迁 Windows 本地（`benchmarks/ctftiny` 检出 + get_it 净化目录），worker 运行时与真值物理隔离 | 待隔离后重测 polly |
 | v0.11 | **DASCTF 开卷事故**：solve_notes（writeup 全解）被当 description 下发给 worker，Steganography 复测 prompt 直接带出每步密钥与解法 | description 置空，只给题名/分类/附件 | DASCTF 复测重跑 |
 | v0.11 | race 超时后 worker 不杀→孤儿进程继续跑，与下一 race 撞 worker_N 日志名 | deadline 到点统一 kill_tree + timeout 审计记录 | 消除孤儿与日志污染 |
+| v0.11 | androidfff 只派 1 个默认 worker（manifest 分类 `re` ≠ 路由表 `rev`） | dasctf 平台 re→rev 统一映射 | rev 双 worker 竞速生效 |
 
 > ⚠️ 完整性注：v0.11 之前的所有 CTFTiny 评测，worker 均能以 root 在 Kali 上直读题库真值
 > （challenge.json/flag.txt），历史成绩（15/15、11/13）置信度受损，建议隔离后重跑重标定。
@@ -49,7 +52,9 @@
    隔离后复测 v4-pro "解出"，但审计发现 flag 来自 curl osirislab 公开仓库（OSINT 查解），
    LLL/多项式密码的**真实解题能力仍未验证** → 复测时需断网或改用无公开题解的题。
 2. **Flutter APK 逆向**（androidfff）：jadx 装上后 androidfile 已解（DASCTF 实效 4/7），flutter 专属逆向仍是硬骨头 → 团队任务
-3. **多层隐写**（stegh）：僵局放宽复测后仍挂（1503s，字节反转→zip→emoji-aes 链超出 flash 能力）→ 团队任务：misc 技能包深化 + 难题路由 v4-pro
+3. **多层隐写**（stegh + Steganography）：诚实复测确认 flash 攻不下 4 层链
+   （Steganography：RC4→像素 LSB→cloacked-pixel→DFT 盲水印，双 race 全挂）
+   → 团队任务：misc 技能包深化 + 难题路由 v4-pro + 分阶段提示（逐层拆解）
 4. **服务类题**（showdown 等）：
    - Kali 有 Podman 5.3（docker 仿真）✅，CTFTiny 镜像预发布在 docker.io/llmctf/* ✅
    - **卡点**：Kali 网络访问 docker.io 被拒（connection refused），daocloud 镜像白名单不含 llmctf 镜像
