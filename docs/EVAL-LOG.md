@@ -35,7 +35,11 @@
 1. **格密码**（polly-crack-this，LLL）：Kali 无 SageMath（apt 源缺包、pip 无 py3.13 wheel 均失败）→ 团队任务：修 Kali apt 源
 2. **Flutter APK 逆向**（androidfff）：jadx 装上后 androidfile 已解（DASCTF 实效 4/7），flutter 专属逆向仍是硬骨头 → 团队任务
 3. **多层隐写**（stegh）：僵局放宽复测后仍挂（1503s，字节反转→zip→emoji-aes 链超出 flash 能力）→ 团队任务：misc 技能包深化 + 难题路由 v4-pro
-4. **服务类题**（showdown 等）：需 Docker 或手动环境搭建 → 已发现 Kali 有 **Podman 5.3**（docker 命令仿真）可作容器运行时，服务题路线解锁（注意：Kali 上 8080 端口有用户自己的容器 ctf2024-challenge08，勿动）
+4. **服务类题**（showdown 等）：
+   - Kali 有 Podman 5.3（docker 仿真）✅，CTFTiny 镜像预发布在 docker.io/llmctf/* ✅
+   - **卡点**：Kali 网络访问 docker.io 被拒（connection refused），daocloud 镜像白名单不含 llmctf 镜像
+   - 团队任务解法：Kali 配代理/VPN，或找含 llmctf 镜像的国内仓库，或 Windows 拉镜像 save/load 到 Kali
+   - 注意：Kali 8080 端口有用户自己的容器（ctf2024-challenge08），勿动
 5. Kali 单点依赖：无自动拉起/本机降级 → 团队任务
 
 ## 运行形态验证（比赛日形态）
