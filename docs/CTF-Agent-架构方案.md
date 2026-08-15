@@ -78,8 +78,8 @@
 1. 模型：主用 deepseek-v4-pro（你已配好 DSH；LLM-CTF-Solver 也支持）；枚举类用 GLM/Groq free 省钱——这正是 pi-agent"中立 transcript 可换模型"设计的用途
 2. Kali 接入：优先 SSH（LLM-CTF-Solver 原生支持，比 MCP 稳）；MCP 作为备选（DSH 已挂好 kali MCP）
 3. 平台客户端：等比赛开放后抓 DASCTF 的 API（Vue SPA，/api/*），照 openharmonyctf-platformskill 的模式写（cookie jar + captcha + 加密 + 提交）
-4. 本机补装：pwntools、z3-solver、sympy（pip 一条命令）；gdb/gcc 留给 Kali
-5. 规则确认：先确认比赛规则是否允许联网 LLM / 使用现成开源框架（有些 AI 专项赛会限制），这决定 A 还是 B
+   4. 本机补装：pwntools、z3-solver、sympy（pip 一条命令）；gdb/gcc 留给 Kali
+   2. 规则确认：先确认比赛规则是否允许联网 LLM / 使用现成开源框架（有些 AI 专项赛会限制），这决定 A 还是 B
 
 ---
 

@@ -32,11 +32,17 @@
 
 ## 已知能力短板（待优化）
 
-1. **格密码**（polly-crack-this，LLL）：Kali 无 SageMath（源缺包）→ 团队任务
-2. **APK 逆向**（androidfile/androidfff）：jadx/apktool 已装，待技能包+复测
+1. **格密码**（polly-crack-this，LLL）：Kali 无 SageMath（apt 源缺包、pip 无 py3.13 wheel 均失败）→ 团队任务：修 Kali apt 源
+2. **Flutter APK 逆向**（androidfff）：jadx 装上后 androidfile 已解（DASCTF 实效 4/7），flutter 专属逆向仍是硬骨头 → 团队任务
 3. **多层隐写**（stegh）：僵局检测已放宽多阶段保护，待复测
 4. **服务类题**（showdown 等）：需 Docker 或手动环境搭建 → 团队任务
 5. Kali 单点依赖：无自动拉起/本机降级 → 团队任务
+
+## 运行形态验证（比赛日形态）
+
+- loop 模式（--loop 60）：mock 4 题 5 分钟内全部循环解出 ✓
+- 看板人机回路：hints 写入/复核开关/confirm 协议端到端 ✓（dashboard.py 全端点实测）
+- 赛前体检 preflight.py 就绪 ✓
 
 ## 事故记录
 
