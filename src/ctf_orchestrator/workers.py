@@ -158,11 +158,11 @@ def start_worker_rpc(cmd: list[str], cwd: Path, log_path: Path,
 
 
 def send_rpc(proc: subprocess.Popen, command: dict[str, Any]) -> bool:
-    """向 rpc worker 发一条命令（JSON 行）。失败返回 False。"""
+    """向 rpc worker 发一条命令（JSON 行，stdin 为字节管道）。失败返回 False。"""
     if proc.poll() is not None or proc.stdin is None:
         return False
     try:
-        proc.stdin.write(json.dumps(command, ensure_ascii=False) + "\n")
+        proc.stdin.write((json.dumps(command, ensure_ascii=False) + "\n").encode("utf-8"))
         proc.stdin.flush()
         return True
     except (BrokenPipeError, OSError, ValueError):
