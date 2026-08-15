@@ -189,6 +189,13 @@ class CtftinyPlatform(BasePlatform):
                 continue
             detail = self._detail(cid)
             cat = meta.get("cat", "misc")
+            # 服务题：box + internal_port → 远程连接信息（T-F1：此前丢失导致 worker 无路可走）
+            box = str(detail.get("box") or "")
+            port = detail.get("internal_port") or detail.get("port")
+            try:
+                port_i = int(port) if port is not None else None
+            except (TypeError, ValueError):
+                port_i = None
             out.append(NormalizedChallenge(
                 platform=self.name,
                 challenge_id=cid,
@@ -197,6 +204,9 @@ class CtftinyPlatform(BasePlatform):
                 description=detail.get("description", ""),
                 points=detail.get("points"),
                 files=list(detail.get("files") or []),
+                target_kind="remote" if box else "static",
+                host=box or None,
+                port=port_i,
                 raw={**meta, "difficulty": DIFFICULTY.get(cid, "moderate")},
             ))
         return out

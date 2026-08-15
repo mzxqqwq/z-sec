@@ -56,12 +56,13 @@ DEFAULT_MODEL_CONFIG = {
 }
 
 SOLVE_PROMPT_TEMPLATE = """\
-你是一名 CTF 选手，正在参加 DASCTF 竞赛。请独立解出下面这道题并给出 flag。
+你是一名 CTF 选手，正在参加一场 CTF 竞赛（Jeopardy 赛制）。请独立解出下面这道题并给出 flag。
 
 题目信息：
 {challenge_json}
 
-附件已下载到工作目录 attachments/（如无附件则忽略）。
+附件已下载到工作目录 attachments/（如无附件则忽略）。若题目信息里给了连接信息
+（connection/host/port），说明这是远程服务题：先用 nc 连上去摸清交互，再写 exp。
 
 工作环境说明：你的 bash/文件工具实际运行在一台装好 pwntools/angr/z3/sympy/
 nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
@@ -71,6 +72,10 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 【重要契约】
 - 如果题目有多个 flag，不要因为提交对一个就停止，直到平台明确显示题目完成。
 - 不要过早宣布失败；一条路线失败时换思路继续，而不是放弃。
+- flag 格式以你找到的为准（flag{{...}}、csawctf{{...}}、DASCTF{{...}}、HTB{{...}} 等都可能
+  出现）：找到完整 flag 就原样提交，不要因为格式与你的预期不符而丢弃或改写。
+- 不要在机器上翻找 flag 文件、不要 grep 文件系统猜答案——flag 一定来自解题过程
+  （解出算法/利用漏洞/连上服务拿到的才算数）。
 - 提交答案：优先调用 submit_flag 工具（参数 flag 为完整 flag 字符串），平台返回 correct 即完成；
   卡住时可用 get_hint 工具获取官方提示。仅当这两个工具不可用时，才用 "FLAG: <flag内容>" 一行输出。
 - 同题有另一个 worker 在并行解题：每几步调用一次 check_findings 工具查看它的新发现，

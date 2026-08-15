@@ -90,6 +90,7 @@ function StarGrid({ challenges, onOpen }: {
           <div className="star-card-head">
             <span className={`star-dot ${c.status}`} />
             <span className="star-card-title">{c.name || c.cid}</span>
+            {c.connection && <span className="cat-badge cat-pwn" title={`远程服务 ${c.connection}`}>靶机</span>}
             <CategoryBadge category={c.category} />
           </div>
           <div className="star-card-desc">{c.digest_first ?? ""}</div>
@@ -346,6 +347,9 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
           <span className="panel-card-title" style={{ fontSize: 16 }}>{challenge?.name || cid}</span>
           {challenge && <StarBadge status={challenge.status} />}
           {challenge && <CategoryBadge category={challenge.category} />}
+          {challenge?.connection && (
+            <span className="cat-badge cat-pwn" title="远程服务题">靶机 {challenge.connection}</span>
+          )}
           <span className="muted" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
             ⏱ {fmtElapsed(challenge?.elapsed ?? 0)} · ◈ {fmtTokens(challenge?.tokens ?? 0)} · ¥ {(challenge?.cost ?? 0).toFixed(4)}
           </span>

@@ -266,35 +266,57 @@ class Supervisor:
             + json.dumps(recent, ensure_ascii=False, indent=2)
             + "\n\n## Response Contract\n只输出一个 JSON 对象。"
         )
-        body = {
-            "model": REVIEW_MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user},
-            ],
-            "max_tokens": MAX_TOKENS,
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-        }
-        try:
-            r = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=body, timeout=TIMEOUT,
-            )
-            r.raise_for_status()
-            content = r.json()["choices"][0]["message"].get("content") or ""
-            data = json.loads(content)
-        except Exception as e:
-            print(f"[supervisor] review call failed: {e}")
-            return None
-        if not isinstance(data, dict):
-            return None
-        return {
-            "memory_actions": data.get("memory_actions") or [],
-            "idea_actions": data.get("idea_actions") or [],
-            "reminder": data.get("reminder"),
-        }
+        # 两次尝试：① json_object 强约束；② 空 content/解析失败 → 去掉约束重试 + 花括号提取
+        for attempt, with_format in enumerate((True, False)):
+            body: dict[str, Any] = {
+                "model": REVIEW_MODEL,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": MAX_TOKENS,
+                "temperature": 0.2,
+            }
+            if with_format:
+                body["response_format"] = {"type": "json_object"}
+            try:
+                r = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=body, timeout=TIMEOUT,
+                )
+                r.raise_for_status()
+                content = r.json()["choices"][0]["message"].get("content") or ""
+                data = json.loads(content)
+            except Exception as e:
+                print(f"[supervisor] review call failed (attempt {attempt + 1}): {e}")
+                continue
+            if not isinstance(data, dict):
+                # 花括号兜底：模型在 JSON 外裹了文字
+                data = self._extract_json_dict(content)
+                if data is None:
+                    continue
+            return {
+                "memory_actions": data.get("memory_actions") or [],
+                "idea_actions": data.get("idea_actions") or [],
+                "reminder": data.get("reminder"),
+            }
+        return None
+
+    @staticmethod
+    def _extract_json_dict(text: str) -> Optional[dict[str, Any]]:
+        """Cairn output_parser 思想的简化版：从每个 '{' 起 raw_decode，取第一个 dict。"""
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(text):
+            if ch != "{":
+                continue
+            try:
+                obj, _ = decoder.raw_decode(text[i:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                return obj
+        return None
 
     # ---------- 看板动作落地 ----------
     @staticmethod

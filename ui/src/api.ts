@@ -12,6 +12,7 @@ export interface ChallengeView {
   tokens: number
   cost: number
   digest_first: string
+  connection: string
 }
 
 export interface Summary {
