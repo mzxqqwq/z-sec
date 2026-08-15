@@ -50,6 +50,14 @@ CATEGORY_MAP = {"cry": "crypto", "for": "misc", "msc": "misc",
                 "pwn": "pwn", "rev": "rev", "web": "web"}
 
 
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+# 按规范化题目名匹配难度（README 表的下划线名与 ctftiny.json 的连字符/大小写名统一）
+DIFFICULTY_BY_NAME = {_norm(k.split("-", 1)[1]): v for k, v in DIFFICULTY.items()}
+
+
 class CtftinyPlatform(BasePlatform):
     name = "ctftiny"
 
@@ -125,7 +133,9 @@ class CtftinyPlatform(BasePlatform):
     def _enabled(self, cid: str) -> bool:
         if cid in self.exclude:
             return False
-        diff = DIFFICULTY.get(cid, "moderate")
+        meta = self._meta.get(cid, {})
+        diff = DIFFICULTY_BY_NAME.get(_norm(str(meta.get("name", ""))),
+                                      DIFFICULTY.get(cid, "moderate"))
         if self.difficulties and diff not in self.difficulties:
             return False
         cat = self._meta.get(cid, {}).get("cat", "misc")
