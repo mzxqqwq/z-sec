@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -50,11 +51,10 @@ class DasctfEvalPlatform(BasePlatform):
         return {}
 
     def _find_dir(self, hint: str) -> Optional[Path]:
-        """在解压树里按关键词找题目目录（处理乱码/嵌套）。"""
-        target = hint.lower().replace(" ", "")
+        """在解压树里按关键词找题目目录（处理乱码/嵌套/大小写）。"""
+        target = re.sub(r"[^a-z0-9]", "", hint.lower())
         for d in self.extracted.rglob("*"):
-            if d.is_dir() and target in d.name.lower():
-                # 优先最浅目录
+            if d.is_dir() and target in re.sub(r"[^a-z0-9]", "", d.name.lower()):
                 return d
         return None
 
@@ -83,14 +83,18 @@ class DasctfEvalPlatform(BasePlatform):
             return []
         paths: list[Path] = []
         dest_dir.mkdir(parents=True, exist_ok=True)
+        SKIP_SUFFIX = {".pyc", ".pyo", ".class", ".dex"}
         for f in d.rglob("*"):
-            if f.is_file() and f.suffix.lower() in (".zip", ".py", ".txt", ".enc", ".png",
-                                                    ".jpg", ".tar.gz", ".matrix", ".sage"):
-                out = dest_dir / f.name
-                if not out.exists():
-                    out.write_bytes(f.read_bytes())
-                paths.append(out)
-        # 也把解压后的关键文件放进去
+            if not f.is_file():
+                continue
+            if f.suffix.lower() in SKIP_SUFFIX or f.name == ".DS_Store":
+                continue
+            if f.stat().st_size > 25 * 1024 * 1024:
+                continue
+            out = dest_dir / f.name
+            if not out.exists():
+                out.write_bytes(f.read_bytes())
+            paths.append(out)
         return paths
 
     def submit_flag(self, challenge: NormalizedChallenge, flag: str) -> SubmitResult:
