@@ -433,6 +433,12 @@ def api_bench_stop():
     return jsonify({"ok": ok, "msg": msg})
 
 
+@app.post("/api/bench/resume/<run_id>")
+def api_bench_resume(run_id: str):
+    ok, msg = bench_admin.resume(run_id)
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @app.get("/api/bench/status")
 def api_bench_status():
     return jsonify(bench_admin.status())

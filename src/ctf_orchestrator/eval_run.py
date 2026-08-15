@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -84,6 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     ws = Path(args.workspace)
     ws.mkdir(parents=True, exist_ok=True)
 
+    # 进程身份文件：看板靠它收养/停止本进程（看板重启后 pid 不在内存也能接管）
+    pid_file = ws / "run.pid"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
     # 健康闸门：Kali 不可达就拒绝开跑（防止 1 小时评测白跑）
     if args.platform in ("ctftiny",) and args.kali_url:
         import requests as _req
@@ -127,6 +132,12 @@ def main(argv: list[str] | None = None) -> int:
             platform.close()
         except Exception as e:
             print(f"[revive] cleanup error: {e}")
+        # 移除进程身份文件
+        try:
+            if pid_file.exists() and pid_file.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                pid_file.unlink()
+        except OSError:
+            pass
 
     # 成绩单（复活功能上线后：dead 服务题由 podman 本地复活，成绩单不再区分靶机状态）
     solved = [cs for cs in orch.board.challenges.values() if cs.status == "solved"]

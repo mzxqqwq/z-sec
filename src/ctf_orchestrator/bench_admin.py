@@ -239,19 +239,18 @@ def _status_locked() -> dict[str, Any]:
     if running_recs:
         rec = running_recs[-1]
         pid = int(rec.get("pid") or 0)
-        alive = False
-        if pid:
-            try:
-                import psutil
-                alive = psutil.pid_exists(pid)
-            except Exception:
-                alive = False
-        if alive:
+        if _alive(pid):
             return {"status": "running", "platform": rec.get("bench_id"),
                     "elapsed": round(time.time() - float(rec.get("started_at") or time.time()), 1),
                     "pid": pid, "exit_code": None, "run_id": rec.get("id"),
                     "log_tail": _log_tail(rec.get("id"))}
         _finalize(rec.get("id", ""), "done" if _run_result_exists(rec.get("id", "")) else "failed")
+    # 记录缺失但 run.pid 存活（极端情况）：仍报 running，防止并发开跑
+    orphan_pid = _run_pid_file_alive()
+    if orphan_pid:
+        return {"status": "running", "platform": _run.get("platform"),
+                "elapsed": 0, "pid": orphan_pid, "exit_code": None,
+                "run_id": None, "log_tail": ""}
     return {"status": "idle", "platform": _run.get("platform"),
             "elapsed": 0, "log_tail": "", "run_id": None}
 
@@ -274,87 +273,187 @@ def status() -> dict[str, Any]:
 
 
 def history() -> list[dict[str, Any]]:
-    """历史跑分（新→旧）。"""
+    """历史跑分（新→旧），带续跑快照标记。"""
     with _run_lock:
         _status_locked()  # 先收养/终态化
-        return sorted(_load_index(), key=lambda r: r.get("started_at") or 0, reverse=True)
+        recs = sorted(_load_index(), key=lambda r: r.get("started_at") or 0, reverse=True)
+        out: list[dict[str, Any]] = []
+        for r in recs:
+            item = dict(r)
+            item["snapshot"] = (RUNS_DIR / str(item.get("id", "")) / "state.json").exists()
+            out.append(item)
+        return out
+
+
+# ---------- 进程身份（三源：内存 Popen / runs.json 收养 / run.pid 文件） ----------
+def _alive(pid: int) -> bool:
+    if not pid:
+        return False
+    try:
+        import psutil
+        return psutil.pid_exists(int(pid))
+    except Exception:
+        return False
+
+
+def _adopted_running() -> dict[str, Any] | None:
+    """看板重启后：runs.json 里仍在跑的记录且 pid 存活。"""
+    for r in sorted(_load_index(), key=lambda x: x.get("started_at") or 0, reverse=True):
+        if r.get("status") == "running" and _alive(int(r.get("pid") or 0)):
+            return r
+    return None
+
+
+def _run_pid_file_alive() -> int:
+    p = BENCH_WS / "run.pid"
+    if not p.exists():
+        return 0
+    try:
+        pid = int(p.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+    return pid if _alive(pid) else 0
+
+
+def _effective_running_pid() -> int:
+    """当前真实跑分进程 pid（看板重启后仍能找到）。"""
+    proc: Optional[subprocess.Popen] = _run.get("proc")
+    if proc is not None and proc.poll() is None:
+        return proc.pid
+    rec = _adopted_running()
+    if rec:
+        return int(rec.get("pid") or 0)
+    return _run_pid_file_alive()
+
+
+def _build_cmd(bench_id: str, filters: dict[str, Any]) -> list[str]:
+    d = BENCH_DEFS[bench_id]
+    cmd = [sys.executable, "-X", "utf8", str(EVAL_RUN),
+           *d["args"], "--workspace", str(BENCH_WS),
+           "--config", str(L2_CONFIG)]
+    # 服务题本地复活开关：CTF_REVIVE=1 时对 dead 服务题用 Kali podman 起容器
+    if os.environ.get("CTF_REVIVE") == "1":
+        cmd.append("--revive")
+    for k in ("difficulty", "categories", "only", "exclude"):
+        if filters.get(k):
+            cmd += [f"--{k}", str(filters[k])]
+    return cmd
+
+
+def _spawn(cmd: list[str], bench_id: str, name: str, filters: dict[str, Any],
+           extra: dict[str, Any] | None = None) -> tuple[bool, str]:
+    """spawn eval_run + 等待 run.pid 出现（拿到真实 pid）+ 落历史记录。"""
+    BENCH_WS.mkdir(parents=True, exist_ok=True)
+    run_id = time.strftime("%Y%m%d-%H%M%S")
+    log_path = RUNS_DIR / run_id / "run.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(log_path, "w", encoding="utf-8", errors="replace")
+    try:
+        proc = subprocess.Popen(
+            cmd, cwd=str(Path(r"D:\ctf-agent")),
+            stdout=log_fh, stderr=subprocess.STDOUT,
+            creationflags=CREATE_NEW_PROCESS_GROUP,
+        )
+    except Exception as e:
+        log_fh.close()
+        return False, f"启动失败: {e}"
+    started_at = time.time()
+    # 等 eval_run 写出 run.pid（Kali 健康检查前就会写，秒级）
+    real_pid = 0
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            break  # 秒退（参数错/Kali 健康闸门失败）
+        real_pid = _run_pid_file_alive()
+        if real_pid:
+            break
+        time.sleep(0.5)
+    _run.update({"proc": proc, "platform": bench_id,
+                 "started_at": started_at, "cmd": cmd, "run_id": run_id})
+    records = _load_index()
+    records.append({"id": run_id, "bench_id": bench_id, "name": name,
+                    "filters": filters, "cmd": cmd,
+                    "started_at": started_at, "status": "running",
+                    "pid": real_pid or proc.pid, "finished_at": None, "exit_code": None,
+                    "result": None, **(extra or {})})
+    _save_index(records)
+    return True, (f"已启动 {name} 跑分 (run={run_id}, pid={real_pid or proc.pid})"
+                  + ("；等待 run.pid 超时，请留意是否秒退" if not real_pid else ""))
 
 
 def start(bench_id: str, filters: dict[str, Any] | None = None) -> tuple[bool, str]:
-    """启动一次跑分。filters: difficulty/categories/only/exclude（逗号分隔字符串）。"""
+    """启动一次全新跑分。filters: difficulty/categories/only/exclude。"""
     with _run_lock:
-        if _run.get("proc") is not None and _run["proc"].poll() is None:
+        if _effective_running_pid():
             return False, "已有跑分在运行，先停止"
         d = BENCH_DEFS.get(bench_id)
         if d is None:
             return False, f"未知题库 {bench_id}"
         filters = filters or {}
-        cmd = [sys.executable, "-X", "utf8", str(EVAL_RUN),
-               *d["args"], "--workspace", str(BENCH_WS),
-               "--config", str(L2_CONFIG)]
-        # 服务题本地复活开关：CTF_REVIVE=1 时对 dead 服务题用 Kali podman 起容器
-        if os.environ.get("CTF_REVIVE") == "1":
-            cmd.append("--revive")
-        if filters.get("difficulty"):
-            cmd += ["--difficulty", str(filters["difficulty"])]
-        if filters.get("categories"):
-            cmd += ["--categories", str(filters["categories"])]
-        if filters.get("only"):
-            cmd += ["--only", str(filters["only"])]
-        if filters.get("exclude"):
-            cmd += ["--exclude", str(filters["exclude"])]
         # 干净跑分：把上一个 run 的产物归入它自己的目录（id 对号入座），再清当前黑板
-        BENCH_WS.mkdir(parents=True, exist_ok=True)
-        run_id = time.strftime("%Y%m%d-%H%M%S")
         prev = [r for r in _load_index() if r.get("status") == "running"]
         if prev:
             _archive_to(prev[-1]["id"])
         else:
             # 升级前的旧现场（无记录可归）→ legacy 目录，不丢失
             _archive_to("legacy")
-        for junk in ("state.json", "eval-result.json"):
+        for junk in ("state.json", "eval-result.json", "run.pid"):
             p = BENCH_WS / junk
             if p.exists():
                 p.unlink()
-        log_path = RUNS_DIR / run_id / "run.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fh = open(log_path, "w", encoding="utf-8", errors="replace")
-        try:
-            proc = subprocess.Popen(
-                cmd, cwd=str(Path(r"D:\ctf-agent")),
-                stdout=log_fh, stderr=subprocess.STDOUT,
-                creationflags=CREATE_NEW_PROCESS_GROUP,
-            )
-        except Exception as e:
-            log_fh.close()
-            return False, f"启动失败: {e}"
-        _run.update({"proc": proc, "platform": bench_id,
-                     "started_at": time.time(), "cmd": cmd, "run_id": run_id})
-        records = _load_index()
-        records.append({"id": run_id, "bench_id": bench_id, "name": d["name"],
-                        "filters": filters, "cmd": cmd,
-                        "started_at": _run["started_at"], "status": "running",
-                        "pid": proc.pid, "finished_at": None, "exit_code": None,
-                        "result": None})
-        _save_index(records)
-        return True, f"已启动 {d['name']} 跑分 (run={run_id}, pid={proc.pid})"
+        return _spawn(_build_cmd(bench_id, filters), bench_id, d["name"], filters)
+
+
+def resume(run_id: str) -> tuple[bool, str]:
+    """续跑：把某次跑分的进度快照（runs/<id>/state.json）恢复回工作区，从断点继续。
+
+    已解出的题保持 solved 不再重跑；未解的从 needs_hint/queued 继续自动续派。
+    """
+    with _run_lock:
+        if _effective_running_pid():
+            return False, "已有跑分在运行，先停止"
+        rec = next((r for r in _load_index() if r.get("id") == run_id), None)
+        if rec is None:
+            return False, f"找不到跑分 {run_id}"
+        snap = RUNS_DIR / run_id / "state.json"
+        if not snap.exists():
+            return False, "该跑分没有进度快照，无法续跑"
+        bench_id = rec.get("bench_id") or ""
+        d = BENCH_DEFS.get(bench_id)
+        if d is None:
+            return False, f"未知题库 {bench_id}"
+        # 当前工作区残留先归入上个未完结跑分，再恢复快照
+        prev = [r for r in _load_index() if r.get("status") == "running"]
+        if prev:
+            _archive_to(prev[-1]["id"])
+        else:
+            _archive_to("legacy")
+        import shutil
+        shutil.copy2(snap, BENCH_WS / "state.json")
+        rp = BENCH_WS / "eval-result.json"
+        if rp.exists():
+            rp.unlink()
+        filters = rec.get("filters") or {}
+        ok, msg = _spawn(_build_cmd(bench_id, filters), bench_id, d["name"], filters,
+                         extra={"resumed_from": run_id})
+        return ok, ("续跑 " + msg) if ok else msg
 
 
 def stop() -> tuple[bool, str]:
     with _run_lock:
-        proc: Optional[subprocess.Popen] = _run.get("proc")
-        if proc is None or proc.poll() is not None:
+        pid = _effective_running_pid()
+        if not pid:
             if _run.get("run_id"):
                 _finalize(_run["run_id"], "stopped")
                 _run["run_id"] = None
             _run["proc"] = None
             return True, "无运行中的跑分"
         try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
                            capture_output=True, timeout=30)
         except Exception as e:
             return False, f"停止失败: {e}"
-        if _run.get("run_id"):
-            _finalize(_run["run_id"], "stopped", proc.returncode)
+        for r in [x for x in _load_index() if x.get("status") == "running"]:
+            _finalize(r["id"], "stopped")
         _run.update({"proc": None, "run_id": None})
         return True, "已停止"

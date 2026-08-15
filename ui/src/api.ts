@@ -58,6 +58,8 @@ export interface BenchRunInfo {
   finished_at: number | null
   status: string
   pid: number
+  snapshot: boolean
+  resumed_from?: string
   result: { total: number; solved: number; by_category: Record<string, { solved: number; total: number }>; elapsed: number } | null
 }
 
@@ -210,6 +212,11 @@ export async function startBench(id: string, filters: Record<string, string>): P
 
 export async function stopBench(): Promise<{ ok: boolean; msg: string }> {
   const r = await fetch("/api/bench/stop", { method: "POST" })
+  return await r.json()
+}
+
+export async function resumeBench(runId: string): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch(`/api/bench/resume/${encodeURIComponent(runId)}`, { method: "POST" })
   return await r.json()
 }
 

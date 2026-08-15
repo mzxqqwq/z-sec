@@ -3,7 +3,7 @@ import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, Mode, 
 import {
   archiveSession, fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest,
   fetchKaliStatus, fetchSessionHistory, fetchState, postConfirm, postHint, postVerify,
-  startBench, stopBench,
+  resumeBench, startBench, stopBench,
 } from "./api"
 import FullTranscript from "./components/FullTranscript"
 import GlassCard from "./components/GlassCard"
@@ -406,9 +406,23 @@ function BenchPage() {
                     <td className="muted" style={{ fontSize: 11 }}>
                       {Object.entries(h.filters || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}
                     </td>
-                    <td><button className="btn btn-sm"
-                      onClick={(e) => { e.stopPropagation(); setSelectedRun(selectedRun === h.id ? null : h.id); setOpen(null) }}>
-                      {selectedRun === h.id ? "收起" : "查看"}</button></td>
+                    <td>
+                      <span style={{ display: "inline-flex", gap: 6 }}>
+                        {h.snapshot && h.status !== "running" && (
+                          <button className="btn btn-sm"
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const r = await resumeBench(h.id)
+                              setToast({ msg: r.msg, kind: r.ok ? "ok" : "err" })
+                              if (r.ok) { setSelectedRun(null); setHistory(await fetchBenchHistory()) }
+                            }}>
+                            续跑</button>
+                        )}
+                        <button className="btn btn-sm"
+                          onClick={(e) => { e.stopPropagation(); setSelectedRun(selectedRun === h.id ? null : h.id); setOpen(null) }}>
+                          {selectedRun === h.id ? "收起" : "查看"}</button>
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
