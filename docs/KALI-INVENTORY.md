@@ -30,7 +30,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| `/root/ctftiny/` | CTFTiny benchmark（CSAW 真题 50 道，含 challenge.json 真值） |
+| `/root/ctftiny/` | ⚠️ 待删除：CTFTiny benchmark 真值（含 challenge.json flag）。评测数据已迁 Windows `D:\ctf-agent\benchmarks\ctftiny`，此目录留在 Kali 会让 worker 直读真值作弊（2026-08-15 polly 事故）。删除命令：`rm -rf /root/ctftiny` |
 | `/root/cybench/` | 空目录（克隆失败残留，可删） |
 | `/root/dasctf-solve/` | DASCTF 真题解题工作目录（子代理产出） |
 

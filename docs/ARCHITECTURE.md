@@ -86,11 +86,11 @@
 
 | # | 优化点 | 现状 → 目标 |
 |---|---|---|
-| 1 | **模型路由** | 现在全题 deepseek-v4-pro → 按题型分模型（pwn/web 用强推理，misc 用 flash）+ 同题多模型竞速 |
-| 2 | **技能包内容** | 目前空 → 把团队积累的每类题型 checklist/工具链写成 SKILL.md |
-| 3 | **Kali 工具链** | 缺 gdb（源冲突待修）、SageMath → 补齐 |
+| 1 | **模型路由** | 已按题型路由（pwn/web/crypto 用 v4-pro，misc/rev 用 flash）+ 同题双模型竞速；可继续调优 |
+| 2 | **技能包内容** | v2 已覆盖 web/pwn/crypto/reverse/misc 五大类（含 fpylll LLL、blutter、blind-watermark 等专项）→ 继续按短板沉淀 |
+| 3 | **Kali 工具链** | fpylll/blutter/stegseek 已装；SageMath 仍缺（apt 源待修）→ 补齐 |
 | 4 | **交互式工具** | Kali 桥是"一次性命令" → 加 SSH pty 通道支持 gdb/nc 交互（EnIGMA 结论：pwn/web 胜负手） |
-| 5 | **并行度** | 现在每轮串行派 worker → 多题并行 + 每题 2-3 个不同模型 worker 竞速 |
+| 5 | **并行度** | 已支持多题并行 + 每题 2 worker 竞速 → 可再调并发上限 |
 | 6 | **成本熔断** | 无 → 单题 token/费用上限，超限降级 flash 或放弃 |
 | 7 | **提示词模板** | 一份通用模板 → 按题型/阶段的模板库（recon/exploit/flag 提取分阶段提示） |
 | 8 | **复盘沉淀** | 尝试记录只存文本 → 自动把成功经验沉淀成 SKILL.md/知识库 |
@@ -104,9 +104,11 @@
 | 组件 | 状态 |
 |---|---|
 | 平台客户端 dasctf_client.py | ✅ 骨架完成（真实端点 8/18 填） |
-| 编排器 ctf_orchestrator.py | ✅ 骨架完成（含 hints 注入、限次提交） |
-| pi 本体 | ✅ 已构建，真实 DeepSeek 调用通过 |
-| kali.ts 扩展（Kali 桥） | ⚠️ 工具调用链路卡住，正在排查（fetch 超时/扩展 bug 二选一） |
-| Kali 工具环境 | ✅ 核心可用；gdb 待修源后补 |
-| mock 平台演练 | ⏳ 桥修好后全链路跑通 |
-| SKILL.md 技能包 | ⏳ 待写 |
+| 编排器 ctf_orchestrator.py | ✅ v2.1 全功能（状态机/竞速/僵局检测/提交纪律/看板/复盘） |
+| pi 本体 | ✅ 已构建；--mode json 事件流已验证（v4-pro/v4-flash 均可） |
+| kali.ts 扩展（Kali 桥） | ✅ 全链路可用（read/write/edit/bash → Kali REST API） |
+| Kali 工具环境 | ✅ 核心可用（pwntools/angr/z3/fpylll/blutter/stegseek…） |
+| 评测闭环 | ✅ CTFTiny 50 题 + DASCTF 2025 真题（easy 15/15 · moderate 11/13 · DASCTF 3/7） |
+| SKILL.md 技能包 | ✅ v2 五大类（继续按短板沉淀） |
+
+> 注：worker 启动直连 node cli.js（勿经 PowerShell 转发含引号 prompt，见 EVAL-LOG v0.11）。
