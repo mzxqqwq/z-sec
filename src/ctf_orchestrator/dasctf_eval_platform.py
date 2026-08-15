@@ -63,12 +63,15 @@ class DasctfEvalPlatform(BasePlatform):
         for e in self._entries:
             if self.skip_unknown and e.get("flag") == "unknown":
                 continue
+            # 描述里剔除任何 flag 形态字符串，防止跨题泄漏污染提示词
+            desc = re.sub(r"(?:flag|ctf|dasctf|csawctf)\{[^\r\n{}]{3,120}\}", "[REDACTED]",
+                          str(e.get("solve_notes", "")), flags=re.I)
             out.append(NormalizedChallenge(
                 platform=self.name,
                 challenge_id=e["name"],
                 name=e["name"],
                 category=(e.get("category") or "misc").lower(),
-                description=e.get("solve_notes", ""),
+                description=desc,
                 points=e.get("difficulty", ""),
                 files=[str(f) for f in e.get("files", [])],
                 raw=e,

@@ -34,7 +34,7 @@
 
 1. **格密码**（polly-crack-this，LLL）：Kali 无 SageMath（apt 源缺包、pip 无 py3.13 wheel 均失败）→ 团队任务：修 Kali apt 源
 2. **Flutter APK 逆向**（androidfff）：jadx 装上后 androidfile 已解（DASCTF 实效 4/7），flutter 专属逆向仍是硬骨头 → 团队任务
-3. **多层隐写**（stegh）：僵局检测已放宽多阶段保护，待复测
+3. **多层隐写**（stegh）：僵局放宽复测后仍挂（1503s，字节反转→zip→emoji-aes 链超出 flash 能力）→ 团队任务：misc 技能包深化 + 难题路由 v4-pro
 4. **服务类题**（showdown 等）：需 Docker 或手动环境搭建 → 团队任务
 5. Kali 单点依赖：无自动拉起/本机降级 → 团队任务
 
