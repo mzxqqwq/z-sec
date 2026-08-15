@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
+// base=/ui/：生产构建由 dashboard.py 挂在 /ui/ 下服务，资源路径必须带前缀
 export default defineConfig({
+  base: '/ui/',
   plugins: [react()],
   server: {
     port: 5173,

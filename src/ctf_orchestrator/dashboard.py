@@ -90,6 +90,12 @@ $rows
 
 @app.get("/")
 def index() -> str:
+    # 新版 React UI 为默认首页（旧模板保留在 /legacy）
+    return redirect("/ui/")
+
+
+@app.get("/legacy")
+def legacy_index() -> str:
     data = state()
     rows = []
     default_cid = ""
@@ -315,8 +321,12 @@ def api_hints_get(cid: str):
     return jsonify({"cid": cid, "text": hints_text(cid)})
 
 
-# ---- React UI 静态资源（生产模式：ui/dist 构建产物）----
+# ---- React UI 静态资源（生产模式：ui/dist 构建产物，base=/ui/）----
 @app.get("/ui")
+def ui_no_slash():
+    return redirect("/ui/")
+
+
 @app.get("/ui/")
 def ui_index():
     return send_from_directory(UI_DIST, "index.html")
