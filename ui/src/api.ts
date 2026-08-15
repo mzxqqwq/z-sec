@@ -64,9 +64,11 @@ export type Mode = "main" | "bench"
 
 const base = (mode: Mode) => (mode === "bench" ? "/api/bench" : "/api")
 const qrun = (runId?: string) => (runId ? `?run=${encodeURIComponent(runId)}` : "")
+const qsess = (sessionId?: string) => (sessionId ? `?session=${encodeURIComponent(sessionId)}` : "")
 
-export async function fetchState(mode: Mode = "main", runId?: string): Promise<ChallengeView[]> {
-  const r = await fetch(`${base(mode)}/state${mode === "bench" ? qrun(runId) : ""}`)
+export async function fetchState(mode: Mode = "main", runId?: string, sessionId?: string): Promise<ChallengeView[]> {
+  const q = mode === "bench" ? qrun(runId) : qsess(sessionId)
+  const r = await fetch(`${base(mode)}/state${q}`)
   if (!r.ok) throw new Error(`state ${r.status}`)
   const data = await r.json()
   return data.challenges ?? []
@@ -83,22 +85,25 @@ export async function fetchKaliStatus(): Promise<"ok" | "bad"> {
   }
 }
 
-export async function fetchDigest(cid: string, mode: Mode = "main", runId?: string): Promise<string> {
-  const r = await fetch(`${base(mode)}/digest/${cid}${mode === "bench" ? qrun(runId) : ""}`)
+export async function fetchDigest(cid: string, mode: Mode = "main", runId?: string, sessionId?: string): Promise<string> {
+  const q = mode === "bench" ? qrun(runId) : qsess(sessionId)
+  const r = await fetch(`${base(mode)}/digest/${cid}${q}`)
   if (!r.ok) return "摘要获取失败"
   const data = await r.json()
   return data.digest ?? "摘要获取失败"
 }
 
-export async function fetchLogs(cid: string, tail = 300, mode: Mode = "main", runId?: string): Promise<string> {
-  const r = await fetch(`${base(mode)}/logs/${cid}?tail=${tail}${mode === "bench" && runId ? `&run=${encodeURIComponent(runId)}` : ""}`)
+export async function fetchLogs(cid: string, tail = 300, mode: Mode = "main", runId?: string, sessionId?: string): Promise<string> {
+  const extra = mode === "bench" && runId ? `&run=${encodeURIComponent(runId)}` : (mode === "main" && sessionId ? `&session=${encodeURIComponent(sessionId)}` : "")
+  const r = await fetch(`${base(mode)}/logs/${cid}?tail=${tail}${extra}`)
   if (!r.ok) return ""
   const data = await r.json()
   return data.text ?? ""
 }
 
-export async function fetchBoard(cid: string, mode: Mode = "main", runId?: string): Promise<Board> {
-  const r = await fetch(`${base(mode)}/board/${cid}${mode === "bench" ? qrun(runId) : ""}`)
+export async function fetchBoard(cid: string, mode: Mode = "main", runId?: string, sessionId?: string): Promise<Board> {
+  const q = mode === "bench" ? qrun(runId) : qsess(sessionId)
+  const r = await fetch(`${base(mode)}/board/${cid}${q}`)
   if (!r.ok) return {}
   const data = await r.json()
   return data.board ?? {}
@@ -120,10 +125,40 @@ export interface Transcript {
   entries: TranscriptEntry[]
 }
 
-export async function fetchTranscript(cid: string, worker = 0, limit = 600, mode: Mode = "main", runId?: string): Promise<Transcript> {
-  const r = await fetch(`${base(mode)}/transcript/${cid}?worker=${worker}&limit=${limit}${mode === "bench" && runId ? `&run=${encodeURIComponent(runId)}` : ""}`)
+export async function fetchTranscript(cid: string, worker = 0, limit = 600, mode: Mode = "main", runId?: string, sessionId?: string): Promise<Transcript> {
+  const extra = mode === "bench" && runId ? `&run=${encodeURIComponent(runId)}` : (mode === "main" && sessionId ? `&session=${encodeURIComponent(sessionId)}` : "")
+  const r = await fetch(`${base(mode)}/transcript/${cid}?worker=${worker}&limit=${limit}${extra}`)
   if (!r.ok) return { cid, workers: 0, worker: 0, worker_files: [], entries: [] }
   return await r.json()
+}
+
+export interface SessionInfo {
+  id: string
+  archived_at: number
+  reason: string
+  summary: { challenges: number; solved: number }
+  logs_moved: number
+}
+
+export async function fetchSessionHistory(): Promise<SessionInfo[]> {
+  const r = await fetch("/api/session/history")
+  if (!r.ok) return []
+  const d = await r.json()
+  return d.sessions ?? []
+}
+
+export async function archiveSession(reason: string): Promise<{ ok: boolean; session_id?: string; msg?: string }> {
+  try {
+    const r = await fetch("/api/session/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    })
+    const d = await r.json()
+    return { ok: r.ok && d.ok, session_id: d.session_id, msg: d.msg }
+  } catch {
+    return { ok: false, msg: "归档失败" }
+  }
 }
 
 export async function postHint(cid: string, text: string, mode: Mode = "main"): Promise<boolean> {

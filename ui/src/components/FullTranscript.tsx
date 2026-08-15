@@ -52,7 +52,12 @@ function Entry({ e }: { e: TranscriptEntry }) {
   )
 }
 
-export default function FullTranscript({ cid, mode, runId }: { cid: string; mode: Mode; runId?: string }) {
+export default function FullTranscript({ cid, mode, runId, sessionId }: {
+  cid: string
+  mode: Mode
+  runId?: string
+  sessionId?: string
+}) {
   const [data, setData] = useState<Transcript>({ cid, workers: 0, worker: 0, worker_files: [], entries: [] })
   const [worker, setWorker] = useState(0)
   const [auto, setAuto] = useState(true)
@@ -62,14 +67,14 @@ export default function FullTranscript({ cid, mode, runId }: { cid: string; mode
   useEffect(() => {
     let alive = true
     const load = async () => {
-      const t = await fetchTranscript(cid, worker, 800, mode, runId)
+      const t = await fetchTranscript(cid, worker, 800, mode, runId, sessionId)
       if (!alive) return
       setData(t)
     }
     load()
     timerRef.current = window.setInterval(load, 15000)
     return () => { alive = false; window.clearInterval(timerRef.current) }
-  }, [cid, worker, mode, runId])
+  }, [cid, worker, mode, runId, sessionId])
 
   useEffect(() => {
     if (auto && bodyRef.current) {

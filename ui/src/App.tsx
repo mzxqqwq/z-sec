@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, Mode, Summary } from "./api"
+import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, Mode, SessionInfo, Summary } from "./api"
 import {
-  fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest, fetchKaliStatus,
-  fetchState, postConfirm, postHint, postVerify, startBench, stopBench,
+  archiveSession, fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest,
+  fetchKaliStatus, fetchSessionHistory, fetchState, postConfirm, postHint, postVerify,
+  startBench, stopBench,
 } from "./api"
 import FullTranscript from "./components/FullTranscript"
 import GlassCard from "./components/GlassCard"
@@ -117,31 +118,55 @@ function Overview() {
   const [kali, setKali] = useState<"ok" | "bad" | "?">("?")
   const [error, setError] = useState("")
   const [selected, setSelected] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [selectedSession, setSelectedSession] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
 
   useEffect(() => {
     let alive = true
     const load = async () => {
       try {
-        const [list, k] = await Promise.all([fetchState("main"), fetchKaliStatus()])
+        const [list, k] = await Promise.all([
+          fetchState("main", undefined, selectedSession ?? undefined), fetchKaliStatus(),
+        ])
         if (!alive) return
         setChallenges(list); setKali(k); setError("")
       } catch (e) {
         if (alive) setError(`后端不可达：${String(e)}`)
       }
+      try {
+        const ss = await fetchSessionHistory()
+        if (alive) setSessions(ss)
+      } catch { /* ignore */ }
     }
     load()
     const t = setInterval(load, 10000)
     return () => { alive = false; clearInterval(t) }
-  }, [])
+  }, [selectedSession])
 
-  if (selected) return <Detail cid={selected} mode="main" onBack={() => setSelected(null)} />
+  if (selected) return <Detail cid={selected} mode="main" sessionId={selectedSession ?? undefined}
+    onBack={() => setSelected(null)} />
 
   const summary = computeSummary(challenges)
+  const fmtTime = (ts: number) => new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false })
+
   return (
     <>
       <Shell summary={summary} kali={kali} />
       <div className="page">
+        <Toast msg={toast.msg} kind={toast.kind} />
         {error && <div className="banner-error">{error}</div>}
+
+        {selectedSession && (
+          <div className="banner-error" style={{ borderColor: "var(--border-bright)", color: "var(--stellar-bright)",
+            background: "rgba(125,146,232,.08)", display: "flex", alignItems: "center", gap: 10 }}>
+            <span>正在回看历史场次 <b>{selectedSession}</b>（只读）</span>
+            <span className="spacer" style={{ flex: 1 }} />
+            <button className="btn btn-sm" onClick={() => { setSelectedSession(null); setSelected(null) }}>
+              返回当前场次</button>
+          </div>
+        )}
+
         <div className="hero-grid">
           <StatCard label="已夺取" icon="⚑" accent="green" value={`${summary.solved}`}
             foot={summary.total ? `共 ${summary.total} 颗星 · ${Math.round((summary.solved / summary.total) * 100)}%` : "等待拉题"} />
@@ -151,6 +176,52 @@ function Overview() {
             foot={`${fmtTokens(summary.tokens)} tokens`} />
         </div>
         <StarGrid challenges={challenges} onOpen={setSelected} />
+
+        <div className="panel-card" style={{ marginTop: 16 }}>
+          <div className="panel-card-head">
+            <h3 className="panel-card-title">历史场次（持久化，重启不丢）</h3>
+            <div className="panel-card-actions">
+              {!selectedSession && (
+                <button className="btn btn-sm"
+                  onClick={async () => {
+                    const r = await archiveSession("手动归档")
+                    setToast(r.ok ? { msg: `已归档为新场次 ${r.session_id}`, kind: "ok" }
+                      : { msg: r.msg ?? "归档失败", kind: "err" })
+                    const ss = await fetchSessionHistory()
+                    setSessions(ss)
+                  }}>
+                  归档当前 · 新开一场
+                </button>
+              )}
+            </div>
+          </div>
+          {sessions.length === 0 ? (
+            <p className="muted">暂无历史场次——点「归档当前 · 新开一场」把当前比赛状态存起来。</p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr><th>归档时间</th><th>原因</th><th>战果</th><th>归档日志数</th><th></th></tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.id} className="row-click"
+                    style={selectedSession === s.id ? { background: "rgba(125,146,232,.12)" } : undefined}
+                    onClick={() => { setSelectedSession(selectedSession === s.id ? null : s.id); setSelected(null) }}>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtTime(s.archived_at)}</td>
+                    <td>{s.reason || "-"}</td>
+                    <td>{s.summary?.solved}/{s.summary?.challenges}</td>
+                    <td>{s.logs_moved}</td>
+                    <td><button className="btn btn-sm" onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedSession(selectedSession === s.id ? null : s.id)
+                      setSelected(null)
+                    }}>{selectedSession === s.id ? "收起" : "查看"}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </>
   )
@@ -355,7 +426,9 @@ function BenchPage() {
 }
 
 // ---------- 题目详情（主/bench 共用） ----------
-function Detail({ cid, mode, runId, onBack }: { cid: string; mode: Mode; runId?: string; onBack: () => void }) {
+function Detail({ cid, mode, runId, sessionId, onBack }: {
+  cid: string; mode: Mode; runId?: string; sessionId?: string; onBack: () => void
+}) {
   const [digest, setDigest] = useState("加载中…")
   const [board, setBoard] = useState<Board>({})
   const [hint, setHint] = useState("")
@@ -368,13 +441,13 @@ function Detail({ cid, mode, runId, onBack }: { cid: string; mode: Mode; runId?:
     const load = async () => {
       try {
         const [d, b] = await Promise.all([
-          fetchDigest(cid, mode, runId), fetchBoard(cid, mode, runId),
+          fetchDigest(cid, mode, runId, sessionId), fetchBoard(cid, mode, runId, sessionId),
         ])
         if (!alive) return
         setDigest(d); setBoard(b)
       } catch { /* ignore */ }
       try {
-        const list = await fetchState(mode, runId)
+        const list = await fetchState(mode, runId, sessionId)
         if (!alive) return
         setChallenge(list.find((c) => c.cid === cid) ?? null)
       } catch { /* ignore */ }
@@ -382,7 +455,7 @@ function Detail({ cid, mode, runId, onBack }: { cid: string; mode: Mode; runId?:
     load()
     timerRef.current = window.setInterval(load, 15000)
     return () => { alive = false; window.clearInterval(timerRef.current) }
-  }, [cid, mode, runId])
+  }, [cid, mode, runId, sessionId])
 
   const sendHint = async () => {
     if (!hint.trim() || readonly) return
@@ -397,7 +470,7 @@ function Detail({ cid, mode, runId, onBack }: { cid: string; mode: Mode; runId?:
   }
 
   const stuck = challenge?.status === "needs_hint"
-  const readonly = mode === "bench" && !!runId
+  const readonly = (mode === "bench" && !!runId) || (mode === "main" && !!sessionId)
 
   return (
     <>
@@ -422,7 +495,7 @@ function Detail({ cid, mode, runId, onBack }: { cid: string; mode: Mode; runId?:
               <div className={`digest-lead ${digest === "摘要生成失败" ? "digest-muted" : ""}`}>{digest}</div>
             </GlassCard>
             <GlassCard title="全程记录（指令 / 思考 / 回复 / 工具）">
-              <FullTranscript cid={cid} mode={mode} runId={runId} />
+              <FullTranscript cid={cid} mode={mode} runId={runId} sessionId={sessionId} />
             </GlassCard>
           </div>
 

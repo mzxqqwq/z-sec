@@ -161,15 +161,19 @@ def log_view(cid: str):
     return f"<pre>{worker_log_tail(cid)}</pre>"
 
 
-def _challenge_view(c: dict) -> dict:
-    """state.json 条目 → 前端列表视图。"""
+def _challenge_view(c: dict, log_dir: Path | None = None) -> dict:
+    """state.json 条目 → 前端列表视图。log_dir 指向归档日志目录时用量从归档算。"""
     raw = c.get("raw") or {}
     attempts = c.get("attempts") or []
     elapsed = 0.0
     for a in attempts:
         elapsed += float(a.get("elapsed") or 0.0)
     cid = c.get("cid", "?")
-    usage = _usage_cached(cid)
+    if log_dir is not None:
+        import tracing
+        usage = tracing.summarize_challenge(log_dir)
+    else:
+        usage = _usage_cached(cid)
     return {
         "cid": cid,
         "name": raw.get("name", ""),
@@ -210,7 +214,13 @@ def _usage_cached(cid: str, ws: Path | None = None) -> dict:
 
 @app.get("/api/usage/<cid>")
 def api_usage(cid: str):
-    u = _usage_cached(cid)
+    session_id = (request.args.get("session") or "").strip() or None
+    if session_id:
+        import tracing
+        u = tracing.summarize_challenge(
+            session_archive.session_log_dir(WORKSPACE, session_id, cid))
+    else:
+        u = _usage_cached(cid)
     return jsonify({"cid": cid,
                     "tokens": u["totalTokens"], "cost": round(u["cost"], 4),
                     "input": u["input"], "output": u["output"], "workers": u["workers"]})
@@ -254,18 +264,32 @@ def api_kali_status():
 
 @app.get("/api/state")
 def api_state():
-    data = state()
-    return jsonify({"challenges": [_challenge_view(c) for c in data.get("challenges", [])]})
+    session_id = (request.args.get("session") or "").strip() or None
+    if session_id:
+        data = session_archive.session_state_raw(WORKSPACE, session_id)
+        views = [_challenge_view(c, session_archive.session_log_dir(WORKSPACE, session_id, c.get("cid", "")))
+                 for c in data.get("challenges", [])]
+    else:
+        data = state()
+        views = [_challenge_view(c) for c in data.get("challenges", [])]
+    return jsonify({"challenges": views})
 
 
 @app.get("/api/state-raw")
 def api_state_raw():
+    session_id = (request.args.get("session") or "").strip() or None
+    if session_id:
+        return jsonify(session_archive.session_state_raw(WORKSPACE, session_id))
     return jsonify(state())
 
 
 @app.get("/api/digest/<cid>")
 def api_digest(cid: str):
     import digest  # 同目录模块
+    session_id = (request.args.get("session") or "").strip() or None
+    if session_id:
+        return jsonify({"cid": cid, "digest": digest.digest(
+            WORKSPACE, cid, session_archive.session_log_dir(WORKSPACE, session_id, cid))})
     return jsonify({"cid": cid, "digest": digest.digest(WORKSPACE, cid)})
 
 
@@ -307,6 +331,16 @@ def api_verify(cid: str):
 def api_logs(cid: str):
     tail = int(request.args.get("tail", 200))
     tail = max(1, min(tail, 500))
+    session_id = (request.args.get("session") or "").strip() or None
+    if session_id:
+        log_dir = session_archive.session_log_dir(WORKSPACE, session_id, cid)
+        logs = sorted(log_dir.glob("worker_*.log"),
+                      key=lambda p: p.stat().st_mtime, reverse=True) if log_dir.is_dir() else []
+        text = ""
+        if logs:
+            raw = logs[0].read_text(encoding="utf-8", errors="replace")
+            text = "\n".join(line[:2000] for line in raw.splitlines()[-tail:])
+        return jsonify({"cid": cid, "text": text})
     return jsonify({"cid": cid, "text": worker_log_tail(cid, tail, line_cap=2000)})
 
 
@@ -314,8 +348,11 @@ def api_logs(cid: str):
 def api_transcript(cid: str):
     """全程记录：worker 事件流 → 指令/思考/回复/工具（T-T1）。"""
     import tracing
-    wd = WORKSPACE / "challenges" / cid
-    logs = tracing.worker_logs(wd)
+    session_id = (request.args.get("session") or "").strip() or None
+    if session_id:
+        logs = tracing.worker_logs(session_archive.session_log_dir(WORKSPACE, session_id, cid))
+    else:
+        logs = tracing.worker_logs(WORKSPACE / "challenges" / cid)
     wi = max(0, min(int(request.args.get("worker", 0) or 0), len(logs) - 1)) if logs else 0
     limit = max(100, min(int(request.args.get("limit", 600) or 600), 2000))
     entries = tracing.parse_transcript(logs[wi], limit) if logs else []
@@ -326,7 +363,8 @@ def api_transcript(cid: str):
 
 @app.get("/api/board/<cid>")
 def api_board(cid: str):
-    data = state()
+    session_id = (request.args.get("session") or "").strip() or None
+    data = session_archive.session_state_raw(WORKSPACE, session_id) if session_id else state()
     for c in data.get("challenges", []):
         if c.get("cid") == cid:
             return jsonify({"cid": cid, "board": c.get("board") or {}})
@@ -356,6 +394,22 @@ def ui_static(path: str):
 
 # ---- Benchmark 模块（T-B1：题库清单 + 跑分进程管理 + 同款挑战视图）----
 import bench_admin  # noqa: E402
+import session_archive  # noqa: E402
+
+
+@app.get("/api/session/history")
+def api_session_history():
+    return jsonify({"sessions": session_archive.list_sessions(WORKSPACE)})
+
+
+@app.post("/api/session/archive")
+def api_session_archive():
+    body = request.get_json(silent=True) or {}
+    reason = str(body.get("reason") or "").strip()
+    ok, sid = session_archive.archive_current(WORKSPACE, reason)
+    if not ok:
+        return jsonify({"ok": False, "msg": sid}), 400
+    return jsonify({"ok": True, "session_id": sid})
 
 
 @app.get("/api/bench/list")
