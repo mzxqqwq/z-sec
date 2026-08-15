@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ctf_orchestrator import Orchestrator, DEFAULT_PI_CMD, DEFAULT_MODEL_CONFIG  # noqa: E402
 from eval_platform import CtftinyPlatform  # noqa: E402
 from dasctf_eval_platform import DasctfEvalPlatform  # noqa: E402
+from cybench_platform import CybenchPlatform  # noqa: E402
 from platform import MockHttpPlatform  # noqa: E402
 
 L1_CONFIG = {
@@ -43,7 +44,8 @@ L1_CONFIG = {
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="eval_run")
-    p.add_argument("--platform", choices=["ctftiny", "dasctf2025", "mock"], default="ctftiny")
+    p.add_argument("--platform", choices=["ctftiny", "cybench", "dasctf2025", "mock"],
+                   default="ctftiny")
     p.add_argument("--workspace", default="D:/ctf-agent/eval-workspace")
     p.add_argument("--difficulty", default="", help="逗号分隔: very_easy,easy,moderate,hard")
     p.add_argument("--categories", default="", help="逗号分隔: crypto,misc,rev,pwn,web")
@@ -74,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.bench_meta:
             kwargs["meta_files"] = tuple(m.strip() for m in args.bench_meta.split(",") if m.strip())
         platform = CtftinyPlatform(**kwargs)
+    elif args.platform == "cybench":
+        platform = CybenchPlatform(
+            categories=categories,
+            exclude=[c.strip() for c in args.exclude.split(",") if c.strip()] or None)
     elif args.platform == "dasctf2025":
         platform = DasctfEvalPlatform()
     else:
