@@ -319,6 +319,11 @@ class Orchestrator:
         conclude_sent = False
         deadline = time.time() + WORKER_TIMEOUT
         while procs and not solved and time.time() < deadline:
+            # ---- 经 worker-api 工具提交成功 → 题目已解，收尾（不依赖 worker 退出带 flag）----
+            if cs.status == STATUS_SOLVED:
+                solved = True
+                print(f"[{cid}] solved via worker submit tool; stopping race")
+                break
             # ---- Supervisor 旁路审查（6 轮节奏，只纠偏不杀 worker）----
             for meta in procs.values():
                 self.supervisor.feed_log(cid, meta["log"])

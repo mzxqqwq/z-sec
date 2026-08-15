@@ -64,8 +64,9 @@ class ChallengeState:
     @classmethod
     def from_dict(cls, item: dict[str, Any]) -> "ChallengeState":
         cs = cls(item["cid"], item.get("raw", {}), item.get("status", STATUS_NEW))
-        # 定版兼容：旧 state.json 里的 dead 一律映射为 needs_hint（不再有死题）
-        if cs.status == "dead":
+        # 定版兼容：旧 state.json 里的 dead 一律映射为 needs_hint（不再有死题）；
+        # 崩溃残留的 solving（上次进程死在派工中途）也映射为 needs_hint 以便重派
+        if cs.status in ("dead", "solving"):
             cs.status = STATUS_NEEDS_HINT
         cs.triage = item.get("triage", {})
         cs.plan = item.get("plan")
