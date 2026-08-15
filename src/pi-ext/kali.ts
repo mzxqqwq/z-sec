@@ -53,6 +53,12 @@ const req = createRequire(`${extDir.replace(/[\\/]+$/, "")}/kali.js`);
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ssh2mod = req("ssh2") as typeof import("ssh2");
 const { Client } = ssh2mod;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const typebox = req("typebox") as typeof import("typebox");
+const { Type } = typebox;
+
+// ---------- worker-api（编排器本地回调：提交/取提示，纪律在编排器侧统一） ----------
+const WORKER_API_URL = process.env.WORKER_API_URL ?? "http://127.0.0.1:8089";
 
 // ---------- 配置 ----------
 interface KaliSshConfig {
@@ -228,6 +234,59 @@ async function kaliExec(
 // ---------- 扩展主体（对外 API 与 REST 版完全一致） ----------
 export default function (pi: ExtensionAPI) {
 	pi.registerFlag("kali", { description: "Kali 远程工作目录（默认 /root/ctf）", type: "string" });
+	pi.registerFlag("cid", { description: "当前挑战 id（提交/取提示用）", type: "string" });
+
+	// ---------- 平台交互工具（T8：经编排器 worker-api 统一提交，纪律中心化） ----------
+	async function workerApiPost(path: string, body: Record<string, unknown>): Promise<string> {
+		let lastErr = "";
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try {
+				const resp = await fetch(`${WORKER_API_URL}${path}`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(body),
+				});
+				const text = await resp.text();
+				if (!resp.ok) return `worker-api http ${resp.status}: ${text.slice(0, 300)}`;
+				return text;
+			} catch (e) {
+				const cause = (e as { cause?: { message?: string; code?: string } }).cause;
+				lastErr = `${e instanceof Error ? e.message : String(e)}${cause ? ` (${cause.code ?? ""} ${cause.message ?? ""})` : ""}`;
+				await new Promise((r) => setTimeout(r, 500));
+			}
+		}
+		return `worker-api unreachable (${lastErr})；可改用 "FLAG: <flag>" 文本输出由编排器代为提交`;
+	}
+
+	pi.registerTool({
+		name: "submit_flag",
+		label: "Submit flag",
+		description:
+			"向比赛平台提交 flag 并获取平台判定（correct/incorrect）。提交前确保 flag 完整（如 DASCTF{...}）。返回 correct 即本题完成。",
+		promptSnippet: "submit_flag(flag)",
+		parameters: Type.Object({ flag: Type.String() }),
+		execute: async (_id, params, _signal) => {
+			const cid = (pi.getFlag("cid") as string | undefined) ?? "";
+			const result = await workerApiPost("/worker-submit", {
+				cid,
+				flag: String(params.flag ?? "").trim(),
+			});
+			return { content: [{ type: "text", text: result }], details: undefined };
+		},
+	});
+
+	pi.registerTool({
+		name: "get_hint",
+		label: "Get hint",
+		description: "获取本题的官方提示（如平台提供）。卡住时可用。",
+		promptSnippet: "get_hint()",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const cid = (pi.getFlag("cid") as string | undefined) ?? "";
+			const result = await workerApiPost("/worker-hint", { cid });
+			return { content: [{ type: "text", text: result }], details: undefined };
+		},
+	});
 
 	const localCwd = process.cwd();
 	const localRead = createReadTool(localCwd);

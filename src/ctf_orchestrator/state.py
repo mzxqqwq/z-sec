@@ -81,12 +81,14 @@ class ChallengeState:
         return cs
 
     # ---- 状态迁移（唯一入口，带合法性断言）----
+    # 注：任何开放状态都允许 → solved（worker 可经 submit_flag 工具随时交卷，
+    # 可能在编排器派工前/续派间隙，2026-08-16 T8 联调实证）
     def transition(self, new_status: str) -> None:
         legal = {
-            STATUS_NEW: (STATUS_QUEUED, STATUS_SOLVING, STATUS_NEEDS_HINT),
-            STATUS_QUEUED: (STATUS_SOLVING, STATUS_NEEDS_HINT),
+            STATUS_NEW: (STATUS_QUEUED, STATUS_SOLVING, STATUS_NEEDS_HINT, STATUS_SOLVED),
+            STATUS_QUEUED: (STATUS_SOLVING, STATUS_NEEDS_HINT, STATUS_SOLVED),
             STATUS_SOLVING: (STATUS_SOLVED, STATUS_NEEDS_HINT, STATUS_QUEUED),
-            STATUS_NEEDS_HINT: (STATUS_SOLVING, STATUS_QUEUED),
+            STATUS_NEEDS_HINT: (STATUS_SOLVING, STATUS_QUEUED, STATUS_SOLVED),
             STATUS_SOLVED: (),
         }
         assert new_status in legal.get(self.status, ()), \

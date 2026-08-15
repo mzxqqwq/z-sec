@@ -82,6 +82,10 @@ class BasePlatform(ABC):
     def submit_flag(self, challenge: NormalizedChallenge, flag: str) -> SubmitResult:
         """提交 flag，返回归一化结果。"""
 
+    def get_hint(self, challenge: NormalizedChallenge) -> str:
+        """官方提示（平台提供时）。默认无提示。"""
+        return ""
+
     def scoreboard(self) -> list[dict[str, Any]]:
         return []
 
@@ -134,6 +138,17 @@ class MockHttpPlatform(BasePlatform):
         data = r.json()
         accepted = bool(data.get("correct") or data.get("success"))
         return SubmitResult(accepted=accepted, message=data.get("msg", ""), raw=data)
+
+    def get_hint(self, challenge: NormalizedChallenge) -> str:
+        r = self.s.get(f"{self.base_url}/api/challenges/{challenge.challenge_id}/hint",
+                       timeout=15)
+        if r.status_code != 200:
+            return "该题无官方提示"
+        try:
+            data = r.json()
+            return str(data.get("hint") or data.get("msg") or "该题无官方提示")
+        except Exception:
+            return "该题无官方提示"
 
 
 def slugify(name: str) -> str:

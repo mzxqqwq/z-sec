@@ -68,6 +68,8 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 【重要契约】
 - 如果题目有多个 flag，不要因为提交对一个就停止，直到平台明确显示题目完成。
 - 不要过早宣布失败；一条路线失败时换思路继续，而不是放弃。
+- 提交答案：优先调用 submit_flag 工具（参数 flag 为完整 flag 字符串），平台返回 correct 即完成；
+  卡住时可用 get_hint 工具获取官方提示。仅当这两个工具不可用时，才用 "FLAG: <flag内容>" 一行输出。
 
 {plan_section}
 {continuation_section}
@@ -264,7 +266,8 @@ class Orchestrator:
             tag = f"{cfg['model']}:{cfg['thinking']}".replace("/", "_").replace(":", "-")
             log_path = workdir / f"worker_{idx}_{tag}.log"
             cmd = (self.pi_cmd + ["--model", cfg["model"], "--thinking", cfg["thinking"],
-                                  "--mode", "json", "--kali", remote_roots[idx], "-p", prompt])
+                                  "--mode", "json", "--kali", remote_roots[idx],
+                                  "--cid", cid, "-p", prompt])
             proc = start_worker(cmd, workdir, log_path)
             procs[proc] = {**cfg, "log": log_path, "idx": idx}
             starts[proc] = time.time()
@@ -390,6 +393,62 @@ class Orchestrator:
             self.board.save()
             print(f"[verify] {cid} verify_required={cs.verify_required}")
 
+    # ---------- worker-api（:8089，kali.ts 的 submit_flag/get_hint 工具回调入口） ----------
+    def start_worker_api(self, port: int = 8089) -> None:
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        orch = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):  # 静默访问日志
+                pass
+
+            def _json(self, code, payload):
+                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if self.path == "/ping":
+                    self._json(200, {"ok": True})
+                else:
+                    self._json(404, {"error": "not found"})
+
+            def do_POST(self):
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    payload = json.loads(self.rfile.read(length) or b"{}")
+                except Exception:
+                    payload = {}
+                if self.path == "/worker-submit":
+                    cid = str(payload.get("cid", ""))
+                    flag = str(payload.get("flag", "")).strip()
+                    try:
+                        msg, ok = orch._submit_direct(cid, flag)
+                    except Exception as e:
+                        msg, ok = f"submit error: {e}", False
+                    print(f"[worker-api] submit {cid} {flag[:24]}... -> {msg}")
+                    self._json(200, {"correct": ok, "message": msg})
+                elif self.path == "/worker-hint":
+                    cid = str(payload.get("cid", ""))
+                    ch = orch._challenges.get(cid)
+                    hint = orch.platform.get_hint(ch) if ch is not None else "该题无官方提示"
+                    self._json(200, {"hint": hint})
+                else:
+                    self._json(404, {"error": "not found"})
+
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        except OSError as e:
+            print(f"[worker-api] port {port} busy; workers fall back to text-flag extraction ({e})")
+            return
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f"[worker-api] listening on http://127.0.0.1:{port}")
+
     # ---------- 轮次 ----------
     def run_round(self) -> None:
         self._process_requests()
@@ -451,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
 
     orch = Orchestrator(Path(args.workspace), platform, pi_cmd, model_config,
                         only={c.strip() for c in args.only.split(",") if c.strip()} or None)
+    orch.start_worker_api()
     if args.loop > 0:
         orch.loop(args.loop)
     else:
