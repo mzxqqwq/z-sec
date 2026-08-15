@@ -31,6 +31,13 @@
 - 已解出的：lost LFSR key、DigitalSignature、stegh、ezmac、androidfile（自解）
   Steganography、androidfff（writeup）
 
+## v0.6（L2：easy+very_easy 全类 8 题，含 pwn）
+- git 461ecea
+- 首跑 6/8（ezmaze/hybrid2 方差翻车）→ 修复：占位符黑名单全前缀化 + crypto/misc 双 worker 竞速
+- **重跑 8/8 全解**（786s）：crypto 2/2、misc 1/1、pwn 1/1（pwn 首胜 puffin）、rev 4/4
+- 僵局检测再次实战：whataxor 循环 worker 被杀，竞速另一路解出
+- 结论：双 worker 竞速是抗方差的正确答案；L1+L2（easy 段）解题率 100%
+
 ## v0.2（P1 后：BasePlatform + 规划器 + 签名式僵局检测 + 解析回退）
 - 2026-08-15：misc 66s / crypto 81s / pwn 111s / web 128s（4/4，web 单独复测确认无僵局误杀）
 - 新能力：平台抽象层（mock/dasctf 双适配器）、planning 阶段（计划注入 worker）、
