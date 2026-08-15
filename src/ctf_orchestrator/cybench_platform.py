@@ -29,7 +29,10 @@ DIFFICULTY_MAP = {"1": "easy", "2": "moderate", "3": "hard", "4": "hard",
                   "very_easy": "very_easy", "easy": "easy", "medium": "moderate",
                   "moderate": "moderate", "hard": "hard"}
 
-FLAG_RE = re.compile(r"(?:HTB|flag|ctf|picoCTF|CSAW)\{[^\r\n{}]{3,120}\}")
+FLAG_RE = re.compile(r"[A-Za-z0-9_]{2,}\{[^\s\r\n{}]{3,120}\}")
+
+# 附件的排除目录/文件（防把 solution/官方解与 metadata/真值下发给 worker）
+EXCLUDE_NAMES = {"metadata", "solution", "solutions"}
 
 
 def _cid_from_rel(rel: Path) -> str:
@@ -40,6 +43,14 @@ def _cid_from_rel(rel: Path) -> str:
         if s:
             parts.append(s)
     return "__".join(parts) or "unknown"
+
+
+def _cat_of(meta: dict[str, Any]) -> str:
+    cats = [str(c).lower() for c in (meta.get("categories") or [])]
+    cat = cats[0] if cats else "misc"
+    return {"reverse": "rev", "forensics": "misc", "forensic": "misc",
+            "cryptography": "crypto", "pwn": "pwn", "web": "web",
+            "misc": "misc", "crypto": "crypto", "rev": "rev"}.get(cat, cat)
 
 
 class CybenchPlatform(BasePlatform):
@@ -68,7 +79,9 @@ class CybenchPlatform(BasePlatform):
             if not isinstance(meta, dict):
                 continue
             rel = rel_dir.relative_to(self.root)
-            self._entries[str(rel).replace("\\", "/")] = {"meta": meta, "rel_dir": rel_dir}
+            self._entries[str(rel).replace("\\", "/")] = {
+                "meta": meta, "rel": rel,
+            }
 
     @staticmethod
     def _flag_of(meta: dict[str, Any]) -> str:
@@ -80,38 +93,49 @@ class CybenchPlatform(BasePlatform):
         return ""
 
     def _normalized(self, key: str, meta: dict[str, Any],
-                    rel_dir: Path) -> NormalizedChallenge:
-        cats = [str(c).lower() for c in (meta.get("categories") or [])]
-        cat = cats[0] if cats else "misc"
-        if cat in ("forensics", "forensic"):
-            cat = "misc"
+                    rel: Path) -> NormalizedChallenge:
+        cat = _cat_of(meta)
         diff_raw = str(meta.get("difficulty", "")).lower()
         diff = DIFFICULTY_MAP.get(diff_raw, "moderate")
         desc = str(meta.get("easy_prompt") or meta.get("hard_prompt") or "")
-        challenge_dir = rel_dir / "challenge"
-        files = [p.name for p in challenge_dir.iterdir() if p.is_file()] \
-            if challenge_dir.is_dir() else []
+        files = self._task_files(rel)
         target_host = str(meta.get("target_host") or "")
-        cid = _cid_from_rel(rel_dir)
+        cid = _cid_from_rel(rel)
         return NormalizedChallenge(
             platform=self.name,
             challenge_id=cid,
-            name=str(rel_dir.name),
+            name=str(rel.name),
             category=cat,
             description=desc,
             points=None,
             files=files,
             target_kind="remote" if target_host else "static",
             host=target_host or None,
-            raw={**meta, "_rel_dir": str(rel_dir), "_key": key,
+            raw={**meta, "_rel": str(rel), "_key": key,
                  "difficulty": diff},
         )
+
+    def _task_files(self, rel: Path) -> list[str]:
+        """任务下发给选手的文件清单（相对路径）：
+        除 metadata/solution/*.sh/README* 外全部给——兼容 dist/ 与 challenge/ 两种布局。"""
+        task_root = self.root / rel
+        out: list[str] = []
+        for f in sorted(task_root.rglob("*")):
+            if not f.is_file():
+                continue
+            rel_parts = f.relative_to(task_root).parts
+            if any(p in EXCLUDE_NAMES for p in rel_parts):
+                continue
+            if f.suffix == ".sh" or f.name.startswith("README"):
+                continue
+            out.append("/".join(rel_parts))
+        return out
 
     def list_challenges(self) -> list[NormalizedChallenge]:
         out: list[NormalizedChallenge] = []
         for key, entry in self._entries.items():
             meta = entry["meta"]
-            ch = self._normalized(key, meta, entry["rel_dir"])
+            ch = self._normalized(key, meta, entry["rel"])
             if self.exclude and ch.challenge_id in self.exclude:
                 continue
             if self.categories and ch.category not in self.categories:
@@ -123,22 +147,22 @@ class CybenchPlatform(BasePlatform):
 
     def download_attachments(self, challenge: NormalizedChallenge,
                              dest_dir: Path) -> list[Path]:
-        rel_dir = Path(challenge.raw["_rel_dir"]) if challenge.raw.get("_rel_dir") else None
-        if rel_dir is None:
+        rel = Path(challenge.raw["_rel"]) if challenge.raw.get("_rel") else None
+        if rel is None:
             return []
-        challenge_dir = self.root / rel_dir / "challenge"
-        if not challenge_dir.is_dir():
+        task_root = self.root / rel
+        if not task_root.is_dir():
             return []
         paths: list[Path] = []
         dest_dir.mkdir(parents=True, exist_ok=True)
-        for f in challenge_dir.iterdir():
-            if not f.is_file():
+        for rel_name in self._task_files(rel):
+            src = task_root / Path(*rel_name.split("/"))
+            if src.stat().st_size > self.max_files_mb * 1024 * 1024:
+                print(f"[cybench] skip large file {rel_name}")
                 continue
-            if f.stat().st_size > self.max_files_mb * 1024 * 1024:
-                print(f"[cybench] skip large file {f.name}")
-                continue
-            out = dest_dir / f.name
-            out.write_bytes(f.read_bytes())
+            out = dest_dir / Path(*rel_name.split("/"))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(src.read_bytes())
             paths.append(out)
         return paths
 
