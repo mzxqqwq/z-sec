@@ -3,7 +3,7 @@
 dashboard.py —— 人机协同看板（Flask，只读 + 文件协议写回）
 
 职责（对应官方考察"人类四价值"）：
-- 过程监督：题目状态/耗时/尝试/提交记录一览 + 实时日志尾部
+- 过程监督：题目状态/耗时/尝试/提交记录一览 + 实时日志尾部 + 中文摘要
 - 目标设定/策略判断：网页写 hints（写 hints/<cid>.md，编排器下一轮注入）
 - 结果复核：人工确认候选 flag 提交（写 requests/confirm/<cid>.json）或开关复核模式
   （写 requests/verify/<cid>.toggle）
@@ -11,6 +11,7 @@ dashboard.py —— 人机协同看板（Flask，只读 + 文件协议写回）
 与编排器的通信全部走文件协议（看板不直接写 state.json，避免跨进程竞态）。
 
 用法：python dashboard.py --workspace D:/ctf-agent/workspace --port 8088
+React UI（D:/ctf-agent/ui 构建后）：自动 serve ui/dist 静态文件（/ui/ 路径）。
 """
 from __future__ import annotations
 
@@ -20,10 +21,11 @@ import time
 from pathlib import Path
 from string import Template
 
-from flask import Flask, jsonify, redirect, request
+from flask import Flask, jsonify, redirect, request, send_from_directory
 
 app = Flask(__name__)
 WORKSPACE: Path = Path("D:/ctf-agent/workspace")
+UI_DIST: Path = Path(r"D:\ctf-agent\ui\dist")
 
 
 def state() -> dict:
@@ -41,7 +43,7 @@ def hints_text(cid: str) -> str:
     return f.read_text(encoding="utf-8") if f.exists() else ""
 
 
-def worker_log_tail(cid: str, lines: int = 40) -> str:
+def worker_log_tail(cid: str, lines: int = 40, line_cap: int = 4000) -> str:
     wd = WORKSPACE / "challenges" / cid
     if not wd.exists():
         return ""
@@ -49,7 +51,10 @@ def worker_log_tail(cid: str, lines: int = 40) -> str:
     if not logs:
         return ""
     text = logs[0].read_text(encoding="utf-8", errors="replace")
-    return "\n".join(text.splitlines()[-lines:])
+    out = []
+    for line in text.splitlines()[-lines:]:
+        out.append(line[:line_cap])  # 单行截断：完整事件在磁盘原文件里
+    return "\n".join(out)
 
 
 PAGE = Template("""<!DOCTYPE html>
@@ -149,9 +154,109 @@ def log_view(cid: str):
     return f"<pre>{worker_log_tail(cid)}</pre>"
 
 
+def _challenge_view(c: dict) -> dict:
+    """state.json 条目 → 前端列表视图。"""
+    raw = c.get("raw") or {}
+    attempts = c.get("attempts") or []
+    elapsed = 0.0
+    for a in attempts:
+        elapsed += float(a.get("elapsed") or 0.0)
+    return {
+        "cid": c.get("cid", "?"),
+        "name": raw.get("name", ""),
+        "category": raw.get("category", "?"),
+        "status": c.get("status", "?"),
+        "races": int(c.get("races") or len(attempts)),
+        "attempts": len(attempts),
+        "elapsed": round(elapsed, 1),
+        "wrong_submits": int(c.get("wrong_submits") or 0),
+        "verify_required": bool(c.get("verify_required")),
+        "pending_flags": (c.get("triage") or {}).get("pending_flags") or [],
+    }
+
+
 @app.get("/api/state")
 def api_state():
+    data = state()
+    return jsonify({"challenges": [_challenge_view(c) for c in data.get("challenges", [])]})
+
+
+@app.get("/api/state-raw")
+def api_state_raw():
     return jsonify(state())
+
+
+@app.get("/api/digest/<cid>")
+def api_digest(cid: str):
+    import digest  # 同目录模块
+    return jsonify({"cid": cid, "digest": digest.digest(WORKSPACE, cid)})
+
+
+@app.post("/api/hints/<cid>")
+def api_hints(cid: str):
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "msg": "empty text"}), 400
+    f = WORKSPACE / "hints" / f"{cid}.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(f"\n## {stamp}\n{text}\n")
+    return jsonify({"ok": True, "cid": cid})
+
+
+@app.post("/api/confirm/<cid>")
+def api_confirm(cid: str):
+    body = request.get_json(silent=True) or {}
+    flag = str(body.get("flag") or "").strip()
+    if not flag:
+        return jsonify({"ok": False, "msg": "empty flag"}), 400
+    d = WORKSPACE / "requests" / "confirm"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{cid}.json").write_text(json.dumps({"flag": flag}), encoding="utf-8")
+    return jsonify({"ok": True, "cid": cid})
+
+
+@app.post("/api/verify/<cid>")
+def api_verify(cid: str):
+    d = WORKSPACE / "requests" / "verify"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{cid}.toggle").write_text("", encoding="utf-8")
+    return jsonify({"ok": True, "cid": cid, "verify_required": True})
+
+
+@app.get("/api/logs/<cid>")
+def api_logs(cid: str):
+    tail = int(request.args.get("tail", 200))
+    tail = max(1, min(tail, 500))
+    return jsonify({"cid": cid, "text": worker_log_tail(cid, tail, line_cap=2000)})
+
+
+@app.get("/api/board/<cid>")
+def api_board(cid: str):
+    data = state()
+    for c in data.get("challenges", []):
+        if c.get("cid") == cid:
+            return jsonify({"cid": cid, "board": c.get("board") or {}})
+    return jsonify({"cid": cid, "board": {}})
+
+
+@app.get("/api/hints/<cid>")
+def api_hints_get(cid: str):
+    return jsonify({"cid": cid, "text": hints_text(cid)})
+
+
+# ---- React UI 静态资源（生产模式：ui/dist 构建产物）----
+@app.get("/ui")
+@app.get("/ui/")
+def ui_index():
+    return send_from_directory(UI_DIST, "index.html")
+
+
+@app.get("/ui/<path:path>")
+def ui_static(path: str):
+    return send_from_directory(UI_DIST, path)
 
 
 def main(argv: list[str] | None = None) -> int:
