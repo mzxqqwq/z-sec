@@ -46,3 +46,9 @@
 - [ ] 至少 1 道题由编排器全自动解出并成功交卷
 - [ ] 平台行为清单（冷却/限频/flag 格式/计分）记录在案
 - [ ] 问题清单进入 M4
+
+## 附录：赛前基础设施侦察（2026-08-15）
+- game.gcsis.cn → 腾讯云 CDN（cdn.dnsv1.com.cn，DNSPod 调度）；www.gcsis.cn → 阿里云 CDN（cdngslb.com）
+- 无 api./test./ai./admin. 子域 → API 大概率同域 /api/*（注意 CDN 的 WAF/限频行为）
+- 前端 SPA 仍是报名页 bundle（app.e89b9074.js），比赛界面预计测试赛前才部署
+- 探测脚本已就绪：`python probe_platform.py --base-url <真实地址> --out workspace/probe`
