@@ -147,8 +147,10 @@ function getClient(): Promise<InstanceType<typeof Client>> {
 // ---------- 单条命令执行 ----------
 function buildRemoteCommand(cfg: KaliSshConfig, command: string, timeoutMs: number): string {
 	const secs = Math.max(1, Math.ceil(timeoutMs / 1000));
-	// 远程超时杀进程树（timeout -k 5）；sudo 提权（-S 从 stdin 读密码、-p '' 静默提示）
-	const inner = `timeout -k 5 ${secs} bash -c ${JSON.stringify(command)}`;
+	// 命令经 base64 传输：JSON.stringify 会把换行转义成字面 \n，heredoc/多行脚本
+	// 在远端被压成一行导致语法错误（2026-08-16 describeme 日志实证）——base64 保真。
+	const b64 = Buffer.from(command, "utf-8").toString("base64");
+	const inner = `timeout -k 5 ${secs} bash -c ${JSON.stringify(`echo ${b64} | base64 -d | bash`)}`;
 	return cfg.sudo ? `sudo -S -p '' ${inner}` : inner;
 }
 
@@ -376,7 +378,21 @@ export default function (pi: ExtensionAPI) {
 	const localBash = createBashTool(localCwd);
 
 	let remoteCwd = "/root/ctf";
-	const toRemote = (p: string) => (p === localCwd ? remoteCwd : p.replace(localCwd, remoteCwd));
+	// 路径归一：pi 的工具层先按 Windows 解析参数（/root/... → D:\root\...），
+	// 而 bash 的 pwd 是 Kali 路径——两套坐标系在这里归一：
+	//   ① localCwd（Windows 工作目录）→ remoteCwd
+	//   ② D:\root\... 等被误解析的 Linux 绝对路径 → 还原为 /root/...
+	//   ③ 已是 / 开头的 Linux 绝对路径 → 原样透传
+	//   ④ 其余 Windows 绝对路径 → 当作远程 cwd 下的同名文件
+	const toRemote = (p: string) => {
+		if (p === localCwd) return remoteCwd;
+		if (p.startsWith(localCwd)) return p.replace(localCwd, remoteCwd);
+		const m = p.match(/^[A-Za-z]:\\(root|home|tmp|etc|opt|srv|var|usr)(\\|$)/);
+		if (m) return "/" + p.slice(3).replace(/\\/g, "/");
+		if (p.startsWith("/")) return p;
+		const name = p.split(/[\\/]/).pop() ?? p;
+		return `${remoteCwd}/${name}`;
+	};
 	const q = (s: string) => JSON.stringify(s); // shell-safe 引号
 
 	const readOps: ReadOperations = {
