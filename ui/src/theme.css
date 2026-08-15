@@ -482,3 +482,33 @@ body::after {
 }
 .run-badge { font-size: 11px; font-family: var(--font-mono); padding: 2px 10px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--text-dim); }
+
+/* === 全程记录（指令/思考/回复/工具） === */
+.t-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.t-tabs { display: flex; gap: 6px; }
+.transcript {
+  max-height: 560px; overflow-y: auto;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  padding: 4px 0;
+}
+.t-entry {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
+}
+.t-entry:last-child { border-bottom: none; }
+.t-ts { color: var(--text-faint); flex-shrink: 0; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.t-kind { flex-shrink: 0; width: 58px; color: var(--text-dim); font-size: 11px; padding-top: 1px; }
+.t-body { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.t-prompt { background: rgba(232,200,121,.05); border-left: 2px solid rgba(232,200,121,.5); }
+.t-prompt .t-kind { color: var(--star-amber); }
+.t-prompt .t-body { color: var(--star-amber-bright); cursor: pointer; }
+.t-think .t-body { color: var(--text-faint); font-style: italic; }
+.t-reply .t-body { color: var(--text); }
+.t-call .t-kind { color: var(--stellar-bright); }
+.t-call .t-body { color: var(--stellar-bright); }
+.t-result .t-body { color: var(--text-dim); }
+.t-err { background: rgba(226,100,114,.09); }
+.t-err .t-kind, .t-err .t-body { color: var(--danger); }

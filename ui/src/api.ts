@@ -89,6 +89,28 @@ export async function fetchBoard(cid: string, mode: Mode = "main"): Promise<Boar
   return data.board ?? {}
 }
 
+export interface TranscriptEntry {
+  kind: "prompt" | "think" | "reply" | "call" | "result"
+  ts: string
+  text: string
+  tool?: string
+  isError?: boolean
+}
+
+export interface Transcript {
+  cid: string
+  workers: number
+  worker: number
+  worker_files: string[]
+  entries: TranscriptEntry[]
+}
+
+export async function fetchTranscript(cid: string, worker = 0, limit = 600, mode: Mode = "main"): Promise<Transcript> {
+  const r = await fetch(`${base(mode)}/transcript/${cid}?worker=${worker}&limit=${limit}`)
+  if (!r.ok) return { cid, workers: 0, worker: 0, worker_files: [], entries: [] }
+  return await r.json()
+}
+
 export async function postHint(cid: string, text: string, mode: Mode = "main"): Promise<boolean> {
   const r = await fetch(`${base(mode)}/hints/${cid}`, {
     method: "POST",

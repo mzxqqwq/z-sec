@@ -309,6 +309,20 @@ def api_logs(cid: str):
     return jsonify({"cid": cid, "text": worker_log_tail(cid, tail, line_cap=2000)})
 
 
+@app.get("/api/transcript/<cid>")
+def api_transcript(cid: str):
+    """全程记录：worker 事件流 → 指令/思考/回复/工具（T-T1）。"""
+    import tracing
+    wd = WORKSPACE / "challenges" / cid
+    logs = tracing.worker_logs(wd)
+    wi = max(0, min(int(request.args.get("worker", 0) or 0), len(logs) - 1)) if logs else 0
+    limit = max(100, min(int(request.args.get("limit", 600) or 600), 2000))
+    entries = tracing.parse_transcript(logs[wi], limit) if logs else []
+    return jsonify({"cid": cid, "workers": len(logs),
+                    "worker": wi, "worker_files": [p.name for p in logs],
+                    "entries": entries})
+
+
 @app.get("/api/board/<cid>")
 def api_board(cid: str):
     data = state()
@@ -414,6 +428,19 @@ def api_bench_logs(cid: str):
     tail = int(request.args.get("tail", 200))
     tail = max(1, min(tail, 500))
     return jsonify({"cid": cid, "text": worker_log_tail(cid, tail, line_cap=2000, ws=_bench_ws())})
+
+
+@app.get("/api/bench/transcript/<cid>")
+def api_bench_transcript(cid: str):
+    import tracing
+    wd = _bench_ws() / "challenges" / cid
+    logs = tracing.worker_logs(wd)
+    wi = max(0, min(int(request.args.get("worker", 0) or 0), len(logs) - 1)) if logs else 0
+    limit = max(100, min(int(request.args.get("limit", 600) or 600), 2000))
+    entries = tracing.parse_transcript(logs[wi], limit) if logs else []
+    return jsonify({"cid": cid, "workers": len(logs),
+                    "worker": wi, "worker_files": [p.name for p in logs],
+                    "entries": entries})
 
 
 @app.get("/api/bench/board/<cid>")

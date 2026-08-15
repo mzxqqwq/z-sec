@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react"
 import type { BenchInfo, BenchStatus, Board, ChallengeView, Mode, Summary } from "./api"
 import {
   fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest, fetchKaliStatus,
-  fetchLogs, fetchState, postConfirm, postHint, postVerify, startBench, stopBench,
+  fetchState, postConfirm, postHint, postVerify, startBench, stopBench,
 } from "./api"
-import EventStream, { parseToolEvents, type ToolEvent } from "./components/EventStream"
+import FullTranscript from "./components/FullTranscript"
 import GlassCard from "./components/GlassCard"
 import StatCard from "./components/StatCard"
 import StarBadge, { CategoryBadge } from "./components/StarBadge"
@@ -297,7 +297,6 @@ function BenchPage() {
 // ---------- 题目详情（主/bench 共用） ----------
 function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => void }) {
   const [digest, setDigest] = useState("加载中…")
-  const [logs, setLogs] = useState<ToolEvent[]>([])
   const [board, setBoard] = useState<Board>({})
   const [hint, setHint] = useState("")
   const [toast, setToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
@@ -308,11 +307,11 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
     let alive = true
     const load = async () => {
       try {
-        const [d, raw, b] = await Promise.all([
-          fetchDigest(cid, mode), fetchLogs(cid, 300, mode), fetchBoard(cid, mode),
+        const [d, b] = await Promise.all([
+          fetchDigest(cid, mode), fetchBoard(cid, mode),
         ])
         if (!alive) return
-        setDigest(d); setLogs(parseToolEvents(raw)); setBoard(b)
+        setDigest(d); setBoard(b)
       } catch { /* ignore */ }
       try {
         const list = await fetchState(mode)
@@ -357,8 +356,8 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
             <GlassCard title="当前摘要（AI 翻译日志）" warn={stuck}>
               <div className={`digest-lead ${digest === "摘要生成失败" ? "digest-muted" : ""}`}>{digest}</div>
             </GlassCard>
-            <GlassCard title="工具调用流">
-              <EventStream events={logs} />
+            <GlassCard title="全程记录（指令 / 思考 / 回复 / 工具）">
+              <FullTranscript cid={cid} mode={mode} />
             </GlassCard>
           </div>
 
