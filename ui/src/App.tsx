@@ -91,7 +91,12 @@ function StarGrid({ challenges, onOpen }: {
           <div className="star-card-head">
             <span className={`star-dot ${c.status}`} />
             <span className="star-card-title">{c.name || c.cid}</span>
-            {c.connection && <span className="cat-badge cat-pwn" title={`远程服务 ${c.connection}`}>靶机</span>}
+            {c.connection && (
+              <span className={`cat-badge ${c.liveness === "dead" ? "cat-dead" : c.liveness === "alive" ? "cat-pwn" : "cat-misc"}`}
+                title={`远程服务 ${c.connection}（${c.liveness === "dead" ? "探测已停" : c.liveness === "alive" ? "在线" : "未探测"}）`}>
+                {c.liveness === "dead" ? "靶机已停" : "靶机"}
+              </span>
+            )}
             <CategoryBadge category={c.category} />
           </div>
           <div className="star-card-desc">{c.digest_first ?? ""}</div>
@@ -392,7 +397,11 @@ function BenchPage() {
                       <span className={`star-dot ${h.status === "running" ? "solving" : h.status === "done" ? "solved" : "new"}`} />
                       {" "}{RUN_STATUS[h.status] ?? h.status}
                     </td>
-                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}</td>
+                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}
+                      {h.result && h.result.dead_services ? (
+                        <span className="muted" style={{ fontSize: 10.5 }}>（{h.result.dead_services} 已停不计）</span>
+                      ) : null}
+                    </td>
                     <td>{h.result?.elapsed ? fmtElapsed(h.result.elapsed) : "-"}</td>
                     <td className="muted" style={{ fontSize: 11 }}>
                       {Object.entries(h.filters || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}
@@ -482,7 +491,10 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
           {challenge && <StarBadge status={challenge.status} />}
           {challenge && <CategoryBadge category={challenge.category} />}
           {challenge?.connection && (
-            <span className="cat-badge cat-pwn" title="远程服务题">靶机 {challenge.connection}</span>
+            <span className={`cat-badge ${challenge.liveness === "dead" ? "cat-dead" : challenge.liveness === "alive" ? "cat-pwn" : "cat-misc"}`}
+              title={`远程服务 ${challenge.connection}（${challenge.liveness === "dead" ? "探测已停" : challenge.liveness === "alive" ? "在线" : "未探测"}）`}>
+              {challenge.liveness === "dead" ? "靶机已停" : "靶机"} {challenge.connection}
+            </span>
           )}
           <span className="muted" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
             ⏱ {fmtElapsed(challenge?.elapsed ?? 0)} · ◈ {fmtTokens(challenge?.tokens ?? 0)} · ¥ {(challenge?.cost ?? 0).toFixed(4)}

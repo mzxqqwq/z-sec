@@ -60,6 +60,44 @@ LOCAL_ROOT_DEFAULT = r"D:\ctf-agent\benchmarks\ctftiny"
 # NYU_CTF_Bench（CTFTiny 的全量上游：test 200 题 + development 57 题，2013-2023）
 NYU_ROOT_DEFAULT = r"D:\ctf-agent\benchmarks\nyu-ctf-bench"
 
+# ---------- 服务题靶机存活探测（T-L1，2026-08-16） ----------
+# 只对 benchmark 适配器生效（DASCTF/mock 平台不探测，比赛零影响）。
+# 探测 = 对题目声明的 host:port 做一次 TCP 握手（与 worker 解题动作相同，无额外风险）。
+
+
+def probe_host(host: str, port: int, timeout: int = 6) -> bool:
+    """经 Kali 探测 host:port 是否真的活着（两层）：
+
+    ① TCP 握手；② 发一个换行后 5 秒内收到任何响应字节。
+    只做①会被 VPN fake-ip（198.18.x 代理网段）欺骗——代理接受连接但真服务已死
+    （2026-08-16 describeme 实测：TCP CONN_OK 但服务零响应）。
+    CTF 服务题（socat/nc 类）与 HTTP 服务对换行/请求都会立刻回字节，②可靠。
+    """
+    try:
+        from workers import kali_exec
+        # 连接 + 发探测载荷 + 收响应；timeout 保证总时长可控。
+        # 载荷 = 换行 + 最小 HTTP 请求行：nc/socat 类服务对任意输入都会回提示，
+        # HTTP 类服务对请求行必回状态码——两类都必然产生字节（2026-08-16 实测：
+        # 只发换行时 nginx 类服务会一直等请求行而不回应，造成误判）。
+        cmd = (f"timeout {timeout + 8} bash -c '"
+               f"exec 3<>/dev/tcp/{host}/{port} 2>/dev/null || exit 1; "
+               f"printf \"\\\\nGET / HTTP/1.0\\\\r\\\\n\\\\r\\\\n\" >&3; "
+               f"timeout {timeout} head -c 64 <&3'")
+        out = kali_exec(cmd, timeout=timeout + 14)
+        return bool((out.get("stdout") or "").strip())
+    except Exception:
+        return False
+
+
+def liveness_of(host: str | None, port: int | None) -> str:
+    """alive / dead / unknown（无 host 不探测）。"""
+    if not host or port is None:
+        return "unknown"
+    for _ in range(2):  # 探测失败重试 2 次（防网络抖动误判）
+        if probe_host(host, int(port)):
+            return "alive"
+    return "dead"
+
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
@@ -89,6 +127,7 @@ class CtftinyPlatform(BasePlatform):
         self._meta: dict[str, dict[str, Any]] = {}
         self._details: dict[str, dict[str, Any]] = {}
         self._dir_cache: dict[str, str] = {}
+        self._liveness: dict[str, str] = {}  # cid -> alive/dead/unknown（每 run 缓存）
         self._load_meta()
 
     # ---------- 本地文件访问 ----------
@@ -184,6 +223,27 @@ class CtftinyPlatform(BasePlatform):
 
     def list_challenges(self) -> list[NormalizedChallenge]:
         out: list[NormalizedChallenge] = []
+        # 服务题存活探测（并发 8 路，只探有 host 且未缓存的）
+        from concurrent.futures import ThreadPoolExecutor
+        to_probe = []
+        for cid, meta in self._meta.items():
+            if not self._enabled(cid):
+                continue
+            detail = self._detail(cid)
+            box = str(detail.get("box") or "")
+            if box and cid not in self._liveness:
+                port = detail.get("internal_port") or detail.get("port")
+                to_probe.append((cid, box, port))
+        if to_probe:
+            def _p(item):
+                cid, box, port = item
+                try:
+                    self._liveness[cid] = liveness_of(box, int(port) if port else None)
+                except Exception:
+                    self._liveness[cid] = "unknown"
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(_p, to_probe))
+
         for cid, meta in self._meta.items():
             if not self._enabled(cid):
                 continue
@@ -196,6 +256,10 @@ class CtftinyPlatform(BasePlatform):
                 port_i = int(port) if port is not None else None
             except (TypeError, ValueError):
                 port_i = None
+            liveness = self._liveness.get(cid)
+            if liveness is None:
+                liveness = liveness_of(box, port_i) if box else "unknown"
+                self._liveness[cid] = liveness
             out.append(NormalizedChallenge(
                 platform=self.name,
                 challenge_id=cid,
@@ -207,7 +271,8 @@ class CtftinyPlatform(BasePlatform):
                 target_kind="remote" if box else "static",
                 host=box or None,
                 port=port_i,
-                raw={**meta, "difficulty": DIFFICULTY.get(cid, "moderate")},
+                raw={**meta, "difficulty": DIFFICULTY.get(cid, "moderate"),
+                     "liveness": liveness},
             ))
         return out
 

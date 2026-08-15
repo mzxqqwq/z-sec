@@ -52,6 +52,10 @@ class NormalizedChallenge:
         }
         if self.connection_info:
             out["connection"] = self.connection_info
+            # benchmark 适配器会给出靶机存活探测结果（比赛平台不探测，无此字段）
+            liveness = (self.raw or {}).get("liveness")
+            if liveness:
+                out["service_status"] = liveness
         if self.files:
             out["files"] = self.files
         return out

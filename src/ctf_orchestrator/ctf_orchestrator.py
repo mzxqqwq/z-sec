@@ -79,6 +79,8 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 - 服务题连接失败（DNS 解析失败/连接超时）时：最多重试 2-3 次就止损，不要反复探测网络；
   把算法/漏洞侧先解出来写成本地脚本（bash 支持多行 heredoc 脚本），再联网搜索公开题解
   交叉验证，最后用 submit_flag 提交确认。
+- 若题目信息里 service_status=dead，说明该题远程服务探测为已停服：不要反复尝试连接，
+  直接把算法/漏洞解出来写脚本，联网找公开题解验证后提交。
 - 提交答案：优先调用 submit_flag 工具（参数 flag 为完整 flag 字符串），平台返回 correct 即完成；
   卡住时可用 get_hint 工具获取官方提示。仅当这两个工具不可用时，才用 "FLAG: <flag内容>" 一行输出。
 - 同题有另一个 worker 在并行解题：每几步调用一次 check_findings 工具查看它的新发现，

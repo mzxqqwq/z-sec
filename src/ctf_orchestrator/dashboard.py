@@ -189,6 +189,7 @@ def _challenge_view(c: dict, log_dir: Path | None = None) -> dict:
         "cost": round(usage["cost"], 4),
         "digest_first": str(raw.get("description", "") or "")[:80],
         "connection": str(raw.get("connection") or ""),
+        "liveness": str(raw.get("liveness") or "unknown"),
     }
 
 
@@ -498,6 +499,7 @@ def _challenge_view_ws(c: dict, ws: Path) -> dict:
         "cost": round(usage["cost"], 4),
         "digest_first": str(raw.get("description", "") or "")[:80],
         "connection": str(raw.get("connection") or ""),
+        "liveness": str(raw.get("liveness") or "unknown"),
     }
 
 

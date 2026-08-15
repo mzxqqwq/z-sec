@@ -251,6 +251,7 @@ body::after {
 .cat-web { color: var(--stellar-bright); border-color: rgba(125,146,232,.4); }
 .cat-rev { color: var(--star-amber-bright); border-color: rgba(232,200,121,.4); }
 .cat-misc, .cat-forensics { color: var(--text-dim); border-color: var(--border); }
+.cat-dead { color: var(--danger); border-color: rgba(226,100,114,.4); }
 
 /* === 面板卡 === */
 .panel-card {
