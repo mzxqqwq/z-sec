@@ -102,7 +102,7 @@
 | v0.3 | CTFTiny L1（8 道 easy，含 1 服务题） | 4/8 → 定位 8 个 bug | 1174s | 首次真题评测，暴露 csawctf 前缀/空格 flag/占位符/冷却等问题 |
 | v0.5 | CTFTiny L1 静态（7 道 easy） | **7/7 全解** | 808s（平均 115s/题） | crypto 2/2、misc 1/1、rev 4/4；僵局检测实战立功（whataxor kill+重派后解出） |
 | v0.6 | CTFTiny L2（easy+very_easy 全类 8 道，含 pwn） | **8/8 全解** | 786s | pwn 首胜；双 worker 竞速消除方差；僵局检测两次实战立功 |
-| ... | DASCTF 2025 真题（13 道，7 有真值） | 待测 | 待测 | 清单已就绪 |
+| v0.7 | DASCTF 2025 真题（7 道有真值） | **3/7** | 4585s | LFSR 密码/ecrecover/ezmac 解出；APK×2、多层隐写、盲水印未解——真实赛题难度标杆 |
 
 ## 八、速查
 

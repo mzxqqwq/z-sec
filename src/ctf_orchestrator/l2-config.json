@@ -1,7 +1,7 @@
 {
   "category_routing": {
-    "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"},
-               {"model": "deepseek-v4-flash", "thinking": "minimal"}],
+    "crypto": [{"model": "deepseek-v4-pro",   "thinking": "medium"},
+               {"model": "deepseek-v4-flash", "thinking": "low"}],
     "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"},
                {"model": "deepseek-v4-flash", "thinking": "minimal"}],
     "rev":    [{"model": "deepseek-v4-flash", "thinking": "low"},

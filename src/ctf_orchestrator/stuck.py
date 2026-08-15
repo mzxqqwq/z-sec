@@ -95,25 +95,34 @@ class StuckMonitor:
         return n
 
     def is_stuck(self, alive: bool) -> tuple[bool, str]:
-        """判定是否僵局。alive=False 时不判 idle（进程已死）。"""
+        """判定是否僵局。alive=False 时不判 idle（进程已死）。
+
+        多阶段任务保护：当工具调用多样性高（≥8 种不同签名）时，说明 worker
+        在真实推进阶段（如多层隐写：解压→解密→再解压），收紧规则阈值防止误杀。
+        """
         calls = list(self._calls)
-        # D2 重复调用：最近 4 次 ≥3 次完全相同的签名
+        unique_sigs = len({c["sig"] for c in calls})
+        diverse = unique_sigs >= 8
+        # D2 重复调用：最近 4 次 ≥3 次完全相同签名（高多样性时要求 4/4）
         if len(calls) >= 4:
             sigs = [c["sig"] for c in calls[-4:]]
-            if any(sigs.count(x) >= 3 for x in set(sigs)):
+            need = 4 if diverse else 3
+            if any(sigs.count(x) >= need for x in set(sigs)):
                 return True, "repeated identical call"
         # D3 重复输出：最近 3 个非空结果头完全相同
         heads = [c["head"] for c in calls[-3:] if c["head"]]
         if len(heads) == 3 and heads[0] == heads[1] == heads[2]:
             return True, "identical output"
-        # D6 错误率：最近 ≥5 个结果错误率 ≥60%
+        # D6 错误率：最近 ≥5 个结果错误率 ≥60%（高多样性时要求 ≥80%）
         recent = calls[-5:]
         if len(recent) >= 5:
             errs = sum(1 for c in recent if c["err"])
-            if errs / len(recent) >= 0.6:
+            threshold = 0.8 if diverse else 0.6
+            if errs / len(recent) >= threshold:
                 return True, f"error rate {errs}/{len(recent)}"
-        # idle：进程活着但长时间无事件
-        if alive and time.monotonic() - self._last_event_at > self._idle_seconds:
+        # idle：进程活着但长时间无事件（多阶段任务放宽到 600s）
+        idle_limit = 600.0 if diverse else self._idle_seconds
+        if alive and time.monotonic() - self._last_event_at > idle_limit:
             return True, "idle"
         return False, ""
 

@@ -48,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--difficulty", default="", help="逗号分隔: very_easy,easy,moderate,hard")
     p.add_argument("--categories", default="", help="逗号分隔: crypto,misc,rev,pwn,web")
     p.add_argument("--exclude", default="", help="逗号分隔 cid，跳过指定题")
+    p.add_argument("--only", default="", help="逗号分隔 cid，只跑指定题")
     p.add_argument("--max-rounds", type=int, default=3)
     p.add_argument("--max-attempts", type=int, default=2)
     p.add_argument("--config", default="", help="模型路由配置 JSON（默认 L1 配置）")
@@ -77,7 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         model_config = _json.loads(Path(args.config).read_text(encoding="utf-8"))
 
     orch = Orchestrator(ws, platform, DEFAULT_PI_CMD, model_config,
-                        max_attempts=args.max_attempts)
+                        max_attempts=args.max_attempts,
+                        only={c.strip() for c in args.only.split(",") if c.strip()} or None)
 
     t0 = time.time()
     for round_no in range(1, args.max_rounds + 1):
