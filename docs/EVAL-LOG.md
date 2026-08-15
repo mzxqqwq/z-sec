@@ -1,65 +1,44 @@
 # 系统版本评测记录（提升曲线数据源）
 
-## v0 基线（重构前，M1 架构）
-- 2026-08-15 第一次：misc 36s / crypto 64s / web 112s / pwn 120s（4/4）
-- 2026-08-15 第二次：misc 58s / crypto 68s / pwn 98s / web 168s（4/4）
-- 已知问题：print 模式 v4-pro 空输出、孤儿 worker、提交纪律粗放、无僵局检测
+> 题库：CTFTiny（CSAW 真题，真值判题）+ DASCTF 2025 真题 + mock 演练题
+> 每行 = 一次真实评测跑；对应 git 版本见括号。
 
-## v0.1（P0 重构后：状态机 + json 模式 + 进程组杀 + 提交纪律）
-- 2026-08-15：crypto 68s / pwn 110s / web 200s / misc 927s（4/4）
-- 备注：misc 927s 为模型随机绕圈（无僵局检测，P1 待修）；json 模式验证 v4-pro 修复路径
-- 新能力：状态机 6 态、递增提交冷却 [0,15,60,180]、去重、孤儿清理、事件级输出解析
+## 成绩总表
 
-## v0.3 首次真题评测（CTFTiny L1：8 道 easy，crypto/misc/rev）
-- 成绩 4/8：crypto 2/2 ✅、rev 2/4、misc 0/2
-- 发现并修复三大 bug：
-  1. csawctf{...} 前缀被 ctf{ 模式截断 → 加词边界+csawctf 模式（whataxor 因此失分）
-  2. 带空格的长 flag 被正则漏掉 → 字符类放宽（showdown 因此失分）
-  3. 描述占位符（flag{path}/flag{md5hash}）被当 flag 提交 → 占位符黑名单（ezmaze 错交）
-  4. 提交冷却吞掉后续候选 → try_submit_wait 等待重试
-- 结论：评测体系按设计工作——第一次跑真题就暴露了 4 个真问题
+| 版本 | 题集 | 成绩 | 备注 |
+|---|---|---|---|
+| v0.0（M2 架构前） | mock 4 题 | 4/4 | 基线（36-168s） |
+| v0.3 | CTFTiny L1（8 题 easy，含 1 服务题） | 4/8 | 首次真题评测，暴露 8 个 bug |
+| v0.5 | CTFTiny L1 静态（7 题 easy） | **7/7** | flag 正则修复后；僵局检测首次实战立功 |
+| v0.6 | CTFTiny L2（8 题 easy+very_easy 含 pwn） | **8/8** | 双 worker 竞速；pwn 首胜（puffin） |
+| v0.7 | DASCTF 2025 真题（7 道有真值） | **3/7** | LFSR/ecrecover/ezmac 解出 |
+| v0.7 | CTFTiny L2b（13 题 moderate）首轮 | 9/13 | 发现空格路径判题 bug → 修正后 10/13 |
+| v0.9 | L2b-r2/r3 | 9/13 → 0/13 | r3 因 Kali API 崩溃全部工具报错（环境事故） |
+| v0.10 | **L2b-r4 最终回归** | **11/13（85%）** | v4-pro 双杀 describeme+bigboy；rev 7/7 |
 
-## v0.5（L1 最终：静态题集 7 题）
-- git 632a2a4
-- **成绩 7/7 全解**（808s）：crypto 2/2、misc 1/1（ezmaze）、rev 4/4
-- 亮点：whataxor 僵局检测（错误率 60%）触发 kill+带警告重派，重派后成功解出——
-  僵局-重派闭环第一次在实战中证明价值
-- 修复累计：csawctf 前缀/空格 flag/占位符过滤/冷却等待/目录大小写/子目录附件/服务题排除
+**能力画像**：easy 15/15（100%）· moderate 11/13（85%）· DASCTF 实战难度 3/7（43%）
 
-## DASCTF 2025 真题清单（13 题，dasctf-2025-manifest.json）
-- 7 题有真值（4 自解 + 3 writeup）；6 题 unknown（附 writeup 链接）
-- 已解出的：lost LFSR key、DigitalSignature、stegh、ezmac、androidfile（自解）
-  Steganography、androidfff（writeup）
+## 评测驱动的修复史（训练闭环实证）
 
-## v0.6（L2：easy+very_easy 全类 8 题，含 pwn）
-- git 461ecea
-- 首跑 6/8（ezmaze/hybrid2 方差翻车）→ 修复：占位符黑名单全前缀化 + crypto/misc 双 worker 竞速
-- **重跑 8/8 全解**（786s）：crypto 2/2、misc 1/1、pwn 1/1（pwn 首胜 puffin）、rev 4/4
-- 僵局检测再次实战：whataxor 循环 worker 被杀，竞速另一路解出
-- 结论：双 worker 竞速是抗方差的正确答案；L1+L2（easy 段）解题率 100%
+| 版本 | 评测发现 | 修复 | 效果 |
+|---|---|---|---|
+| v0.4 | csawctf 前缀被 ctf{ 截断；空格 flag 漏掉；占位符（flag{path}）误交；冷却吞候选 | flag 正则重写+黑名单+try_submit_wait | rev 2/4→4/4 |
+| v0.5 | 目录大小写（ezmaze→ezMaze）；附件子目录丢失 | 路径三级回退（精确→iname→规范化） | ezmaze 解出 |
+| v0.6 | crypto/misc 单 worker 模型方差 | 双 worker 竞速 | L2 6/8→8/8 |
+| v0.7 | 空格路径判题 bug（"rebug 2"） | shell 路径引号化 _shq | rebug-2 平反 |
+| v0.8 | v4-pro 空输出（历史悬案） | json 模式事件提取验证 | describeme 被 v4-pro 解出 |
+| v0.9 | 僵局击杀烧光尝试预算（pwn 0/3） | races 独立计数 | password-checker 解出 |
+| v0.10 | Kali 单点故障致 1 小时白跑 | 评测健康闸门 | 环境故障快速止损 |
 
-## v0.7（L2b：moderate 13 题）
-- git 待提交
-- 首轮 9/13；发现判题 bug（目录名含空格 "rebug 2" → shell 命令未加引号 → 判题数据读空，
-  rebug-2 提交正确 flag 被冤判）→ 修复后 **修正成绩 10/13**
-- 真实能力边界（3 题）：describeme（crypto，答错）、polly-crack-this（crypto，64s 秒弃）、
-  password-checker（pwn moderate，v4-pro 680s 被杀）
-- 僵局检测第三次实战立功（beleaf）
-- 修复：shell 路径全量引号化（_shq）、目录解析三级回退（精确→iname→规范化）
+## 已知能力短板（待优化）
 
-## v0.2（P1 后：BasePlatform + 规划器 + 签名式僵局检测 + 解析回退）
-- 2026-08-15：misc 66s / crypto 81s / pwn 111s / web 128s（4/4，web 单独复测确认无僵局误杀）
-- 新能力：平台抽象层（mock/dasctf 双适配器）、planning 阶段（计划注入 worker）、
-  僵局检测（工具名+参数签名 D2 / 输出 D3 / 错误率 D6 / idle，卡住即杀+带警告重派一次）、
-  --only 定向调试参数
-- 修复：状态机非法迁移、planner 模板转义、同名工具误杀（签名化）
+1. **格密码**（polly-crack-this，LLL）：Kali 无 SageMath（源缺包）→ 团队任务
+2. **APK 逆向**（androidfile/androidfff）：jadx/apktool 已装，待技能包+复测
+3. **多层隐写**（stegh）：僵局检测已放宽多阶段保护，待复测
+4. **服务类题**（showdown 等）：需 Docker 或手动环境搭建 → 团队任务
+5. Kali 单点依赖：无自动拉起/本机降级 → 团队任务
 
-## v0.3（P2 后：triage 排序 + 看板 + 人工复核 + 训练闭环，架构 v2.1 重构完成）
-- 2026-08-15，git commit 7e50d89（34 文件入库，src+docs 版本化）
-- 新能力：
-  - triage 先易后难排序（3h 抢分）
-  - Flask 看板 dashboard.py（8088）：题目状态/待复核候选/hints 写入/复核开关/日志尾部
-  - 人机回路文件协议：hints/<cid>.md、requests/confirm/<cid>.json、requests/verify/<cid>.toggle
-    （看板写 → 编排器每轮消费，端到端验证通过）
-  - 训练闭环 postmortem.py：失败模式统计 + 题型矩阵 + 工具错误排行 + 自动建议 + git 版本对应
-- 架构 v2.1 三大阶段（P0/P1/P2）全部完成，进入 benchmark 评测
+## 事故记录
+
+- 2026-08-15 晚：Kali Tools API（:5000）崩溃约 1.5 小时（SSH 正常，仅 API 服务进程死），
+  致 L2b-r3 全 0。用户重启服务后恢复。对策：preflight.py + eval 健康闸门。

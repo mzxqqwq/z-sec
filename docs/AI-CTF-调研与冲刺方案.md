@@ -86,7 +86,7 @@
 - [ ] 写 mock CTF 平台（本地 Flask：/challenges + /submit），打通"拉题→pi 解题→交 flag"最小闭环
 
 ### Day 2（8/16）平台客户端 + flag 链路
-- [ ] DASCTF 平台客户端骨架：cookie 登录 + 题目列表 + 附件下载 + 交 flag + 查分（独立实现：cookie jar + captcha 钩子 + 加密钩子）
+- [ ] DASCTF 平台客户端骨架：cookie 登录 + 题目列表 + 附件下载 + 交 flag + 查分（参考 openharmonyctf-platformskill 的 contest_api.py：cookie jar + captcha + 加密）
 - [ ] flag 检测器：多正则 + 格式校验 + 提交冷却/限次（Koshary/verialabs 做法）
 - [ ] 人机交互接口：人工注入 Hint / 改优先级（Cairn 原生支持，跑通演示）
 
@@ -115,7 +115,7 @@
 |---|---|
 | 报名已截止/未报名 | 立刻核实；如未报，确认是否可补报或转传统赛道 |
 | Cairn 在 Windows/WSL 上跑不起来 | 部署到 Kali 机（Linux）或降级用 LLM-CTF-Solver 骨架 |
-| 平台 API 有 captcha/风控 | 客户端预留 captcha/加密钩子，按标准技术独立实现；测试赛重点探测 |
+| 平台 API 有 captcha/风控 | 复用 openharmonyctf-platformskill 的 captcha/加密经验；测试赛重点探测 |
 | 官方要求用阿里云百炼模型 | pi-ai 支持自定义 baseUrl，百炼是 OpenAI 兼容端点，直接配 |
 | 预算失控 | 成本熔断 + 便宜模型跑枚举（pi 中立 transcript 换模型能力正好用上） |
 

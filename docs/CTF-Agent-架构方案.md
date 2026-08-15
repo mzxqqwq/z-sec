@@ -37,7 +37,7 @@
 
 ### 路线 A：基于 LLM-CTF-Solver 二开（最快出成绩）
 - 优点：CTF 工具/记忆/僵局检测/RAG 全部现成；示例模型即 deepseek-v4-pro；Kali SSH 直接对接你现有那台
-- 要做：配 config.json（deepseek key + Kali SSH）→ 写一个 DASCTF 平台客户端工具（拉题/交 flag，独立实现）→ 沉淀题型技能包
+- 要做：配 config.json（deepseek key + Kali SSH）→ 写一个 DASCTF 平台客户端工具（拉题/交 flag，参考 openharmonyctf-platformskill 的 contest_api.py 模式）→ 把已有 10 个渗透 skills 转成它的 skills 格式
 - 风险：代码量不小、耦合较多，改起来要读懂它的 Workflow/SolveAgent 层
 
 ### 路线 B：抄 pi 骨架自研（最可控、工作量最大）
@@ -77,7 +77,7 @@
 **关键决策点**：
 1. 模型：主用 deepseek-v4-pro（你已配好 DSH；LLM-CTF-Solver 也支持）；枚举类用 GLM/Groq free 省钱——这正是 pi-agent"中立 transcript 可换模型"设计的用途
 2. Kali 接入：优先 SSH（LLM-CTF-Solver 原生支持，比 MCP 稳）；MCP 作为备选（DSH 已挂好 kali MCP）
-3. 平台客户端：等比赛开放后抓 DASCTF 的 API（Vue SPA，/api/*），按抓包结果独立实现（cookie jar + captcha 钩子 + 加密钩子 + 提交）
+3. 平台客户端：等比赛开放后抓 DASCTF 的 API（Vue SPA，/api/*），照 openharmonyctf-platformskill 的模式写（cookie jar + captcha + 加密 + 提交）
 4. 本机补装：pwntools、z3-solver、sympy（pip 一条命令）；gdb/gcc 留给 Kali
 5. 规则确认：先确认比赛规则是否允许联网 LLM / 使用现成开源框架（有些 AI 专项赛会限制），这决定 A 还是 B
 
