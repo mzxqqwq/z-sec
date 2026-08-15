@@ -16,3 +16,9 @@ __pycache__/
 ui/node_modules/
 ui/dist/
 
+
+# 复活功能运行时产物与依赖
+src/pi-ext/node_modules/
+refs/
+eval-workspace-bench/
+src/tools/_*.py
