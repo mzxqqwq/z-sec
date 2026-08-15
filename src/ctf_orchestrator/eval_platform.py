@@ -217,7 +217,12 @@ class CtftinyPlatform(BasePlatform):
                 continue  # 防路径穿越
             src = base / Path(*raw.split("/"))
             if not src.is_file():
-                continue
+                # 兜底：仓库布局与 files 清单不一致时按 basename 找（如 DES2Bites 的
+                # Challenge/ 实际在 dist/）；找不到就跳过
+                candidates = [f for f in base.rglob(Path(raw).name) if f.is_file()]
+                if not candidates:
+                    continue
+                src = candidates[0]
             data = src.read_bytes()
             if len(data) > self.max_files_mb * 1024 * 1024:
                 print(f"[ctftiny] skip large file {raw} ({len(data)/1e6:.1f}MB)")
