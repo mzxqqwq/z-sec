@@ -310,9 +310,9 @@ function BenchPage() {
               </div>
               <div className="bench-desc">{b.desc}</div>
               <div className="bench-stats">
-                <span>题目 <b>{b.challenges}</b></span>
-                {b.truth !== null && <span>真值 <b>{b.truth}</b></span>}
-                <span>分类 {Object.keys(b.categories || {}).length}</span>
+                <span>题库 <b>{b.challenges}</b> 题</span>
+                {b.truth !== null && <span>· 真值 <b>{b.truth}</b> 份</span>}
+                <span>· 分类 {Object.keys(b.categories || {}).length}</span>
               </div>
               <div className="bench-cats">
                 {Object.entries(b.categories || {}).map(([c, n]) => (
