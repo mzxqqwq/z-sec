@@ -176,6 +176,7 @@ def _challenge_view(c: dict) -> dict:
         "pending_flags": (c.get("triage") or {}).get("pending_flags") or [],
         "tokens": usage["totalTokens"],
         "cost": round(usage["cost"], 4),
+        "digest_first": str(raw.get("description", "") or "")[:80],
     }
 
 
@@ -204,6 +205,42 @@ def api_usage(cid: str):
     return jsonify({"cid": cid,
                     "tokens": u["totalTokens"], "cost": round(u["cost"], 4),
                     "input": u["input"], "output": u["output"], "workers": u["workers"]})
+
+
+@app.get("/api/summary")
+def api_summary():
+    """全局态势（星图总览 hero 统计行用）。"""
+    data = state()
+    challenges = data.get("challenges", [])
+    solved = solving = needs_hint = 0
+    cost = 0.0
+    tokens = 0
+    for c in challenges:
+        st = c.get("status", "?")
+        if st == "solved":
+            solved += 1
+        elif st == "solving":
+            solving += 1
+        elif st == "needs_hint":
+            needs_hint += 1
+        u = _usage_cached(c.get("cid", "?"))
+        cost += u["cost"]
+        tokens += u["totalTokens"]
+    return jsonify({"solved": solved, "solving": solving, "needs_hint": needs_hint,
+                    "total": len(challenges), "cost": round(cost, 4), "tokens": tokens})
+
+
+@app.get("/api/kali-status")
+def api_kali_status():
+    """Kali 健康（SSH 通道 ping + REST /health 双检）。"""
+    import requests as _req
+    ok = False
+    try:
+        r = _req.get("http://10.174.153.128:5000/health", timeout=4)
+        ok = r.status_code == 200 and "healthy" in r.text
+    except Exception:
+        ok = False
+    return jsonify({"ok": ok})
 
 
 @app.get("/api/state")

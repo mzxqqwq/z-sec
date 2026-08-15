@@ -11,6 +11,16 @@ export interface ChallengeView {
   pending_flags: string[]
   tokens: number
   cost: number
+  digest_first: string
+}
+
+export interface Summary {
+  solved: number
+  solving: number
+  needs_hint: number
+  total: number
+  cost: number
+  tokens: number
 }
 
 export interface Board {
@@ -23,6 +33,27 @@ export async function fetchState(): Promise<ChallengeView[]> {
   if (!r.ok) throw new Error(`state ${r.status}`)
   const data = await r.json()
   return data.challenges ?? []
+}
+
+export async function fetchSummary(): Promise<Summary> {
+  try {
+    const r = await fetch("/api/summary")
+    if (!r.ok) throw new Error(`summary ${r.status}`)
+    return await r.json()
+  } catch {
+    return { solved: 0, solving: 0, needs_hint: 0, total: 0, cost: 0, tokens: 0 }
+  }
+}
+
+export async function fetchKaliStatus(): Promise<"ok" | "bad"> {
+  try {
+    const r = await fetch("/api/kali-status")
+    if (!r.ok) return "bad"
+    const d = await r.json()
+    return d.ok ? "ok" : "bad"
+  } catch {
+    return "bad"
+  }
 }
 
 export async function fetchDigest(cid: string): Promise<string> {
