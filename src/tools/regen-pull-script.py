@@ -24,7 +24,7 @@ OK=0; FAIL=0; FAILED_LIST=()
 
 for img in "${IMAGES[@]}"; do
     for ((i=1; i<=RETRIES; i++)); do
-        if podman pull "docker.io/$img" >/dev/null 2>&1; then
+        if timeout 300 podman pull "docker.io/$img" >/dev/null 2>&1; then
             echo "OK   $img"
             OK=$((OK+1))
             break
