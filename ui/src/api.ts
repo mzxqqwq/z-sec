@@ -13,7 +13,6 @@ export interface ChallengeView {
   cost: number
   digest_first: string
   connection: string
-  liveness: string
   revived: boolean
 }
 
@@ -59,7 +58,7 @@ export interface BenchRunInfo {
   finished_at: number | null
   status: string
   pid: number
-  result: { total: number; solved: number; by_category: Record<string, { solved: number; total: number }>; elapsed: number; dead_services: number; effective_total: number } | null
+  result: { total: number; solved: number; by_category: Record<string, { solved: number; total: number }>; elapsed: number } | null
 }
 
 export type Mode = "main" | "bench"

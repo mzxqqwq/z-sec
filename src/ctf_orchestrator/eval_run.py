@@ -128,17 +128,11 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"[revive] cleanup error: {e}")
 
-    # 成绩单
+    # 成绩单（复活功能上线后：dead 服务题由 podman 本地复活，成绩单不再区分靶机状态）
     solved = [cs for cs in orch.board.challenges.values() if cs.status == "solved"]
     total = len(orch.board.challenges)
-    dead_services = sum(1 for cs in orch.board.challenges.values()
-                        if (cs.raw or {}).get("service_status") == "dead")
-    effective = max(total - dead_services, 0)
     print(f"\n======== 评测成绩 ========")
     print(f"solved: {len(solved)}/{total}")
-    if dead_services:
-        print(f"  （靶机已停 {dead_services} 道不计入解出率；有效题集 {effective}）"
-              f" 有效解出率: {len(solved)}/{effective}")
     per_cat: dict[str, list[int]] = {}
     for cs in orch.board.challenges.values():
         cat = (cs.raw or {}).get("category", "?")
@@ -152,8 +146,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"elapsed: {elapsed_total:.0f}s")
 
     report = {"total": total, "solved": len(solved),
-              "dead_services": dead_services,
-              "effective_total": effective,
               "by_category": {k: {"solved": v[0], "total": v[1]} for k, v in per_cat.items()},
               "elapsed": elapsed_total,
               "unsolved": [{"cid": cs.cid, "category": (cs.raw or {}).get("category", "?"),

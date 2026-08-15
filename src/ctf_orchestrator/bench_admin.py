@@ -212,10 +212,7 @@ def _finalize(run_id: str, status: str, exit_code=None) -> None:
         patch["result"] = {"total": result.get("total", 0),
                            "solved": result.get("solved", 0),
                            "by_category": result.get("by_category", {}),
-                           "elapsed": result.get("elapsed", 0),
-                           "dead_services": result.get("dead_services", 0),
-                           "effective_total": result.get("effective_total",
-                                                        result.get("total", 0))}
+                           "elapsed": result.get("elapsed", 0)}
     if exit_code is not None:
         patch["exit_code"] = exit_code
     _update_record(run_id, patch)

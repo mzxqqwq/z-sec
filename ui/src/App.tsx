@@ -16,6 +16,9 @@ const STATUS_TEXT: Record<string, string> = {
   solved: "已夺取", needs_hint: "待提示", dead: "已放弃",
 }
 
+// 初赛（线上资格赛）结束时间：2026-08-21 17:00（赛程 14:00–17:00）
+const RACE_DEADLINE = new Date("2026-08-21T17:00:00+08:00")
+
 function fmtElapsed(s: number): string {
   if (s < 60) return `${s}s`
   if (s < 3600) return `${Math.floor(s / 60)}m${Math.round(s % 60)}s`
@@ -42,18 +45,18 @@ function Shell({ summary, kali }: { summary: Summary; kali: "ok" | "bad" | "?" }
   const [countdown, setCountdown] = useState("")
   useEffect(() => {
     const tick = () => {
-      const end = new Date(); end.setHours(17, 0, 0, 0)
-      const diff = Math.max(0, end.getTime() - Date.now())
+      const diff = Math.max(0, RACE_DEADLINE.getTime() - Date.now())
       const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000)
-      setCountdown(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`)
+      setCountdown(diff > 0
+        ? `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+        : "已结束")
     }
     tick()
     const t = setInterval(tick, 1000)
     return () => clearInterval(t)
   }, [])
   const cls = (() => {
-    const end = new Date(); end.setHours(17, 0, 0, 0)
-    const diff = end.getTime() - Date.now()
+    const diff = RACE_DEADLINE.getTime() - Date.now()
     if (diff <= 0) return ""
     if (diff < 600000) return " danger"
     if (diff < 3600000) return " warn"
@@ -67,7 +70,8 @@ function Shell({ summary, kali }: { summary: Summary; kali: "ok" | "bad" | "?" }
         <span className="shell-sub">星图 · AI 夺旗驾驶舱</span>
       </div>
       <div className="shell-right">
-        <span className={`shell-stat${cls}`}>⏱ <b>{countdown}</b></span>
+        <span className={`shell-stat${cls}`}
+          title={`初赛结束时间 ${RACE_DEADLINE.toLocaleString("zh-CN")}`}>⏱ 初赛 <b>{countdown}</b></span>
         <span className="shell-stat">⚑ <b>{summary.total ? `${summary.solved}/${summary.total}` : "-/-"}</b></span>
         <span className="shell-stat">¥ <b>{summary.cost.toFixed(4)}</b></span>
         <span className="shell-stat">Kali <span className={`dot ${kali === "ok" ? "ok" : kali === "bad" ? "bad" : ""}`} /></span>
@@ -92,9 +96,9 @@ function StarGrid({ challenges, onOpen }: {
             <span className={`star-dot ${c.status}`} />
             <span className="star-card-title">{c.name || c.cid}</span>
             {c.connection && (
-              <span className={`cat-badge ${c.liveness === "dead" ? "cat-dead" : c.liveness === "alive" ? "cat-pwn" : "cat-misc"}`}
-                title={`远程服务 ${c.connection}（${c.liveness === "dead" ? "探测已停" : c.revived ? "本地已复活" : c.liveness === "alive" ? "在线" : "未探测"}）`}>
-                {c.liveness === "dead" ? "靶机已停" : c.revived ? "靶机·复活" : "靶机"}
+              <span className="cat-badge cat-misc"
+                title={c.revived ? `远程服务 ${c.connection}（本地已复活）` : `远程服务 ${c.connection}`}>
+                {c.revived ? "靶机·复活" : "靶机"}
               </span>
             )}
             <CategoryBadge category={c.category} />
@@ -397,11 +401,7 @@ function BenchPage() {
                       <span className={`star-dot ${h.status === "running" ? "solving" : h.status === "done" ? "solved" : "new"}`} />
                       {" "}{RUN_STATUS[h.status] ?? h.status}
                     </td>
-                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}
-                      {h.result && h.result.dead_services ? (
-                        <span className="muted" style={{ fontSize: 10.5 }}>（{h.result.dead_services} 已停不计）</span>
-                      ) : null}
-                    </td>
+                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}</td>
                     <td>{h.result?.elapsed ? fmtElapsed(h.result.elapsed) : "-"}</td>
                     <td className="muted" style={{ fontSize: 11 }}>
                       {Object.entries(h.filters || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}
@@ -491,9 +491,9 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
           {challenge && <StarBadge status={challenge.status} />}
           {challenge && <CategoryBadge category={challenge.category} />}
           {challenge?.connection && (
-            <span className={`cat-badge ${challenge.liveness === "dead" ? "cat-dead" : challenge.liveness === "alive" ? "cat-pwn" : "cat-misc"}`}
-              title={`远程服务 ${challenge.connection}（${challenge.liveness === "dead" ? "探测已停" : challenge.revived ? "本地已复活" : challenge.liveness === "alive" ? "在线" : "未探测"}）`}>
-              {challenge.liveness === "dead" ? "靶机已停" : challenge.revived ? "靶机·复活" : "靶机"} {challenge.connection}
+            <span className="cat-badge cat-misc"
+              title={challenge.revived ? `远程服务 ${challenge.connection}（本地已复活）` : `远程服务 ${challenge.connection}`}>
+              {challenge.revived ? "靶机·复活" : "靶机"} {challenge.connection}
             </span>
           )}
           <span className="muted" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>

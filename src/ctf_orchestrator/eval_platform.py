@@ -253,17 +253,19 @@ class CtftinyPlatform(BasePlatform):
 
     def list_challenges(self) -> list[NormalizedChallenge]:
         out: list[NormalizedChallenge] = []
-        # 服务题存活探测（并发 8 路，只探有 host 且未缓存的）
+        # 服务题存活探测只作复活触发器：revive 开启时并发探测 dead 题并尝试 podman 复活；
+        # 不开 revive 时不做任何探测（探测/徽标/成绩单排除已随复活功能下线，2026-08-17）
         from concurrent.futures import ThreadPoolExecutor
         to_probe = []
-        for cid, meta in self._meta.items():
-            if not self._enabled(cid):
-                continue
-            detail = self._detail(cid)
-            box = str(detail.get("box") or "")
-            if box and cid not in self._liveness:
-                port = detail.get("internal_port") or detail.get("port")
-                to_probe.append((cid, box, port))
+        if self.revive:
+            for cid, meta in self._meta.items():
+                if not self._enabled(cid):
+                    continue
+                detail = self._detail(cid)
+                box = str(detail.get("box") or "")
+                if box and cid not in self._liveness:
+                    port = detail.get("internal_port") or detail.get("port")
+                    to_probe.append((cid, box, port))
         if to_probe:
             def _p(item):
                 cid, box, port = item
@@ -290,8 +292,8 @@ class CtftinyPlatform(BasePlatform):
             if cid in self._revived:
                 box, port_i = "127.0.0.1", self._revived[cid]
             liveness = self._liveness.get(cid)
-            if liveness is None:
-                liveness = liveness_of(box, port_i) if box else "unknown"
+            if liveness is None and self.revive and box:
+                liveness = liveness_of(box, port_i)
                 self._liveness[cid] = liveness
             # 服务题本地复活：dead 且开启 revive 时，用 Kali podman 起容器并覆盖连接点
             if liveness == "dead" and self.revive and box:
