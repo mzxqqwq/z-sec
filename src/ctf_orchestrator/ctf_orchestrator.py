@@ -292,16 +292,17 @@ class Orchestrator:
                     break
             time.sleep(2)
 
-        # ---- deadline 到点：杀掉所有仍在跑的 worker（防孤儿进程 + 日志撞名）----
-        for p in list(procs):
-            meta = procs.pop(p)
-            elapsed = time.time() - starts.get(p, time.time())
-            kill_tree(p)
-            cs.attempts.append({"at": time.time(), "elapsed": elapsed,
-                                "worker": f"{meta['model']}:{meta['thinking']}",
-                                "timeout": True, "flags": []})
-            self.board.save()
-            print(f"[{cid}] worker {meta['model']} killed at deadline ({elapsed:.0f}s)")
+        # ---- 循环结束清理：未解且 deadline 到点 → 强杀剩余 worker（防孤儿/日志撞名）----
+        if not solved:
+            for p in list(procs):
+                meta = procs.pop(p)
+                elapsed = time.time() - starts.get(p, time.time())
+                kill_tree(p)
+                cs.attempts.append({"at": time.time(), "elapsed": elapsed,
+                                    "worker": f"{meta['model']}:{meta['thinking']}",
+                                    "timeout": True, "flags": []})
+                self.board.save()
+                print(f"[{cid}] worker {meta['model']} killed at deadline ({elapsed:.0f}s)")
 
         if solved:
             for p in procs:

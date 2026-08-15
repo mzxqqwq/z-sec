@@ -51,3 +51,5 @@
 ## 五、历史遗留（本次早期创建，已被取代）
 - `/home/kali/ctf-venv/`（第一次 pip 安装的 venv，功能已被 MCP venv 取代，可删）
 - `/root/ctf-venv/`（第二次尝试，未完成，可删）
+- `/home/kali/Desktop/CTF-Challenges-main/`（桌面上的 CTF 题解集合，含旧赛题 flag.txt。
+  worker 能读到，评测/比赛时建议移走或改名，避免"答案就在机器上"的干扰）
