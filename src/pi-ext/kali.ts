@@ -330,6 +330,45 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ---------- 本地知识库检索（T13：KB 服务 :8099；评测模式默认关闭） ----------
+	const KB_URL = process.env.KB_URL ?? "http://127.0.0.1:8099";
+	pi.registerTool({
+		name: "kb_search",
+		label: "Search local KB",
+		description:
+			"检索本地 CTF 解题知识库（历年真题与 writeup 提炼的题型→手法参考）。按题型或关键词查询，如 'RSA 小指数'、'PNG 隐写'、'栈溢出'。",
+		promptSnippet: "kb_search(query)",
+		parameters: Type.Object({ query: Type.String() }),
+		execute: async (_id, params) => {
+			if ((process.env.KB_ENABLED ?? "0") !== "1") {
+				return { content: [{ type: "text", text: "(本地知识库未启用)" }], details: undefined };
+			}
+			const q = encodeURIComponent(String(params.query ?? "").trim());
+			if (!q) {
+				return { content: [{ type: "text", text: "kb_search: 查询不能为空" }], details: undefined };
+			}
+			try {
+				const resp = await fetch(`${KB_URL}/search?q=${q}`, { method: "GET" });
+				const data = (await resp.json()) as {
+					results?: Array<{ name?: string; category?: string; desc?: string; hint?: string }>;
+				};
+				const results = Array.isArray(data.results) ? data.results : [];
+				if (results.length === 0) {
+					return { content: [{ type: "text", text: "知识库没有匹配结果，换关键词试试" }], details: undefined };
+				}
+				const parts = results.map(
+					(r) => `[${r.category ?? "?"}] ${r.name ?? ""}\n  ${r.desc ?? ""}${r.hint ? `\n  手法参考: ${r.hint}` : ""}`,
+				);
+				return { content: [{ type: "text", text: "**KB 检索结果:**\n\n" + parts.join("\n\n") }], details: undefined };
+			} catch (e) {
+				return {
+					content: [{ type: "text", text: `kb_search 失败: ${e instanceof Error ? e.message : String(e)}` }],
+					details: undefined,
+				};
+			}
+		},
+	});
+
 	const localCwd = process.cwd();
 	const localRead = createReadTool(localCwd);
 	const localWrite = createWriteTool(localCwd);

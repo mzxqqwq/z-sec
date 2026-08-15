@@ -92,7 +92,7 @@ function App() {
         <thead>
           <tr>
             <th>题目</th><th>分类</th><th>状态</th><th>竞速</th><th>尝试</th>
-            <th>耗时</th><th>错交</th><th>复核</th>
+            <th>耗时</th><th>错交</th><th>成本(¥)</th><th>复核</th>
           </tr>
         </thead>
         <tbody>
@@ -106,11 +106,12 @@ function App() {
               <td>{c.attempts}</td>
               <td>{fmtElapsed(c.elapsed)}</td>
               <td>{c.wrong_submits}</td>
+              <td title={`${(c.tokens ?? 0).toLocaleString()} tokens`}>{(c.cost ?? 0).toFixed(4)}</td>
               <td>{c.verify_required ? "复核中" : "自动"}</td>
             </tr>
           ))}
           {challenges.length === 0 && (
-            <tr><td colSpan={8} className="muted">暂无题目（编排器尚未拉题）</td></tr>
+            <tr><td colSpan={9} className="muted">暂无题目（编排器尚未拉题）</td></tr>
           )}
         </tbody>
       </table>

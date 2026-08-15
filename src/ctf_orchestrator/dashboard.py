@@ -161,8 +161,10 @@ def _challenge_view(c: dict) -> dict:
     elapsed = 0.0
     for a in attempts:
         elapsed += float(a.get("elapsed") or 0.0)
+    cid = c.get("cid", "?")
+    usage = _usage_cached(cid)
     return {
-        "cid": c.get("cid", "?"),
+        "cid": cid,
         "name": raw.get("name", ""),
         "category": raw.get("category", "?"),
         "status": c.get("status", "?"),
@@ -172,7 +174,36 @@ def _challenge_view(c: dict) -> dict:
         "wrong_submits": int(c.get("wrong_submits") or 0),
         "verify_required": bool(c.get("verify_required")),
         "pending_flags": (c.get("triage") or {}).get("pending_flags") or [],
+        "tokens": usage["totalTokens"],
+        "cost": round(usage["cost"], 4),
     }
+
+
+# ---- 用量缓存（T14：worker 日志 mtime 变化才重算） ----
+_USAGE_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _usage_cached(cid: str) -> dict:
+    import tracing  # 同目录模块
+    wd = WORKSPACE / "challenges" / cid
+    if not wd.exists():
+        return {"totalTokens": 0, "cost": 0.0}
+    mtimes = [p.stat().st_mtime for p in wd.glob("worker_*.log")]
+    key = max(mtimes) if mtimes else 0.0
+    hit = _USAGE_CACHE.get(cid)
+    if hit and hit[0] == key:
+        return hit[1]
+    u = tracing.summarize_challenge(wd)
+    _USAGE_CACHE[cid] = (key, u)
+    return u
+
+
+@app.get("/api/usage/<cid>")
+def api_usage(cid: str):
+    u = _usage_cached(cid)
+    return jsonify({"cid": cid,
+                    "tokens": u["totalTokens"], "cost": round(u["cost"], 4),
+                    "input": u["input"], "output": u["output"], "workers": u["workers"]})
 
 
 @app.get("/api/state")

@@ -9,6 +9,8 @@ export interface ChallengeView {
   wrong_submits: number
   verify_required: boolean
   pending_flags: string[]
+  tokens: number
+  cost: number
 }
 
 export interface Board {

@@ -101,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     orch = Orchestrator(ws, platform, DEFAULT_PI_CMD, model_config,
                         max_attempts=args.max_attempts,
                         only={c.strip() for c in args.only.split(",") if c.strip()} or None)
+    if model_config.get("kb_enabled"):
+        orch.start_kb()
+    orch.start_worker_api()
 
     t0 = time.time()
     for round_no in range(1, args.max_rounds + 1):

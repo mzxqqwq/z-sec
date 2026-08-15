@@ -26,7 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import Board, ChallengeState, STATUS_NEW, STATUS_QUEUED, STATUS_SOLVING, \
     STATUS_SOLVED, STATUS_NEEDS_HINT  # noqa: E402
 from workers import (kali_exec, kill_tree, parse_worker_output,  # noqa: E402
-                     start_worker_rpc, send_rpc, cleanup_orphans)
+                     start_worker_rpc, send_rpc, cleanup_orphans,
+                     CREATE_NEW_PROCESS_GROUP)
 from platform import BasePlatform, MockHttpPlatform  # noqa: E402
 from planning import Planner  # noqa: E402
 from supervisor import Supervisor  # noqa: E402
@@ -301,7 +302,9 @@ class Orchestrator:
                                   "--cid", cid])
             proc = start_worker_rpc(cmd, workdir, log_path,
                                     extra_env={"MESSAGE_BUS_FILE": str(bus_path),
-                                               "WORKER_TAG": tag})
+                                               "WORKER_TAG": tag,
+                                               "KB_ENABLED":
+                                                   "1" if self.model_config.get("kb_enabled") else "0"})
             procs[proc] = {**cfg, "log": log_path, "idx": idx,
                            "proc": proc, "agent_ends": 0, "log_offset": 0}
             starts[proc] = time.time()
@@ -457,6 +460,29 @@ class Orchestrator:
             print(f"[verify] {cid} verify_required={cs.verify_required}")
 
     # ---------- worker-api（:8089，kali.ts 的 submit_flag/get_hint 工具回调入口） ----------
+    def start_kb(self, port: int = 8099) -> None:
+        """KB 服务懒启动（kb_enabled 时）：ping 不通则拉起 kb_server.py。"""
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/ping", timeout=2) as r:
+                r.read()
+            print(f"[kb] already running on :{port}")
+            return
+        except Exception:
+            pass
+        try:
+            import subprocess
+            subprocess.Popen(
+                [sys.executable, "-X", "utf8",
+                 str(Path(__file__).resolve().parent / "kb_server.py"),
+                 "--port", str(port)],
+                cwd=str(Path(__file__).resolve().parent),
+                creationflags=CREATE_NEW_PROCESS_GROUP,
+            )
+            print(f"[kb] launched on :{port}")
+        except Exception as e:
+            print(f"[kb] launch failed: {e}")
+
     def start_worker_api(self, port: int = 8089) -> None:
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -573,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
 
     orch = Orchestrator(Path(args.workspace), platform, pi_cmd, model_config,
                         only={c.strip() for c in args.only.split(",") if c.strip()} or None)
+    if model_config.get("kb_enabled"):
+        orch.start_kb()
     orch.start_worker_api()
     if args.loop > 0:
         orch.loop(args.loop)
