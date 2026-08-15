@@ -28,21 +28,33 @@ export interface Board {
   memory?: { id: string; kind: string; content: string }[]
 }
 
-export async function fetchState(): Promise<ChallengeView[]> {
-  const r = await fetch("/api/state")
+export interface BenchInfo {
+  id: string
+  name: string
+  desc: string
+  challenges: number
+  categories: Record<string, number>
+  truth: number | null
+}
+
+export interface BenchStatus {
+  status: "idle" | "running" | "done" | "failed"
+  platform: string | null
+  elapsed: number
+  pid?: number
+  exit_code?: number
+  log_tail: string
+}
+
+export type Mode = "main" | "bench"
+
+const base = (mode: Mode) => (mode === "bench" ? "/api/bench" : "/api")
+
+export async function fetchState(mode: Mode = "main"): Promise<ChallengeView[]> {
+  const r = await fetch(`${base(mode)}/state`)
   if (!r.ok) throw new Error(`state ${r.status}`)
   const data = await r.json()
   return data.challenges ?? []
-}
-
-export async function fetchSummary(): Promise<Summary> {
-  try {
-    const r = await fetch("/api/summary")
-    if (!r.ok) throw new Error(`summary ${r.status}`)
-    return await r.json()
-  } catch {
-    return { solved: 0, solving: 0, needs_hint: 0, total: 0, cost: 0, tokens: 0 }
-  }
 }
 
 export async function fetchKaliStatus(): Promise<"ok" | "bad"> {
@@ -56,29 +68,29 @@ export async function fetchKaliStatus(): Promise<"ok" | "bad"> {
   }
 }
 
-export async function fetchDigest(cid: string): Promise<string> {
-  const r = await fetch(`/api/digest/${cid}`)
+export async function fetchDigest(cid: string, mode: Mode = "main"): Promise<string> {
+  const r = await fetch(`${base(mode)}/digest/${cid}`)
   if (!r.ok) return "摘要获取失败"
   const data = await r.json()
   return data.digest ?? "摘要获取失败"
 }
 
-export async function fetchLogs(cid: string, tail = 300): Promise<string> {
-  const r = await fetch(`/api/logs/${cid}?tail=${tail}`)
+export async function fetchLogs(cid: string, tail = 300, mode: Mode = "main"): Promise<string> {
+  const r = await fetch(`${base(mode)}/logs/${cid}?tail=${tail}`)
   if (!r.ok) return ""
   const data = await r.json()
   return data.text ?? ""
 }
 
-export async function fetchBoard(cid: string): Promise<Board> {
-  const r = await fetch(`/api/board/${cid}`)
+export async function fetchBoard(cid: string, mode: Mode = "main"): Promise<Board> {
+  const r = await fetch(`${base(mode)}/board/${cid}`)
   if (!r.ok) return {}
   const data = await r.json()
   return data.board ?? {}
 }
 
-export async function postHint(cid: string, text: string): Promise<boolean> {
-  const r = await fetch(`/api/hints/${cid}`, {
+export async function postHint(cid: string, text: string, mode: Mode = "main"): Promise<boolean> {
+  const r = await fetch(`${base(mode)}/hints/${cid}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -86,8 +98,8 @@ export async function postHint(cid: string, text: string): Promise<boolean> {
   return r.ok
 }
 
-export async function postConfirm(cid: string, flag: string): Promise<boolean> {
-  const r = await fetch(`/api/confirm/${cid}`, {
+export async function postConfirm(cid: string, flag: string, mode: Mode = "main"): Promise<boolean> {
+  const r = await fetch(`${base(mode)}/confirm/${cid}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ flag }),
@@ -95,7 +107,35 @@ export async function postConfirm(cid: string, flag: string): Promise<boolean> {
   return r.ok
 }
 
-export async function postVerify(cid: string): Promise<boolean> {
-  const r = await fetch(`/api/verify/${cid}`, { method: "POST" })
+export async function postVerify(cid: string, mode: Mode = "main"): Promise<boolean> {
+  const r = await fetch(`${base(mode)}/verify/${cid}`, { method: "POST" })
   return r.ok
+}
+
+// ---- Benchmark 模块 ----
+export async function fetchBenchList(): Promise<BenchInfo[]> {
+  const r = await fetch("/api/bench/list")
+  if (!r.ok) throw new Error(`bench list ${r.status}`)
+  const d = await r.json()
+  return d.benchmarks ?? []
+}
+
+export async function fetchBenchStatus(): Promise<BenchStatus> {
+  const r = await fetch("/api/bench/status")
+  if (!r.ok) return { status: "idle", platform: null, elapsed: 0, log_tail: "" }
+  return await r.json()
+}
+
+export async function startBench(id: string, filters: Record<string, string>): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch("/api/bench/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, filters }),
+  })
+  return await r.json()
+}
+
+export async function stopBench(): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch("/api/bench/stop", { method: "POST" })
+  return await r.json()
 }

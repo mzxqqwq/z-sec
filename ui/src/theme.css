@@ -394,3 +394,91 @@ body::after {
   background: rgba(226,100,114,.1); border: 1px solid rgba(226,100,114,.4);
   color: #f3a0aa; font-size: 13px;
 }
+
+/* === 布局：顶栏 + 左导航 + 内容 === */
+.layout { display: flex; min-height: calc(100vh - 56px); }
+.sidebar {
+  width: 196px; flex-shrink: 0;
+  background: var(--bg-mid);
+  border-right: 1px solid var(--border);
+  padding: 14px 10px;
+}
+.side-group { color: var(--text-faint); font-size: 11px; letter-spacing: .08em;
+  padding: 6px 10px 8px; text-transform: uppercase; }
+.side-nav { list-style: none; }
+.side-nav button {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: left;
+  padding: 9px 12px; margin-bottom: 4px;
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim); font-size: 13.5px; cursor: pointer;
+  transition: all .15s ease;
+}
+.side-nav button:hover { color: var(--text); background: var(--bg-elev-2); }
+.side-nav button.active {
+  color: var(--stellar-bright);
+  background: linear-gradient(90deg, rgba(125,146,232,.16), rgba(125,146,232,.05));
+  border-color: rgba(125,146,232,.28);
+}
+.side-nav .nav-icon { width: 16px; text-align: center; }
+.content { flex: 1; min-width: 0; }
+
+/* === Benchmark 页 === */
+.bench-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 900px) { .bench-grid { grid-template-columns: 1fr; } }
+.bench-card {
+  position: relative; overflow: hidden;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  animation: enter .32s ease both;
+}
+.bench-card::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+  opacity: 0; transition: opacity .18s ease;
+}
+.bench-card:hover { border-color: var(--border-bright); }
+.bench-card.selected {
+  border-color: var(--stellar);
+  box-shadow: var(--shadow-glow);
+}
+.bench-card.selected::before { opacity: 1; }
+.bench-name { font-family: var(--font-display); font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.bench-desc { color: var(--text-dim); font-size: 12.5px; margin: 6px 0 10px; }
+.bench-stats { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-faint); }
+.bench-stats b { color: var(--text-dim); font-weight: 500; }
+.bench-cats { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+
+.filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 14px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); }
+.filter-row label { color: var(--text-dim); font-size: 12px; }
+.filter-row .input, .filter-row select { width: auto; min-width: 110px; }
+.filter-row select {
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  background: var(--bg-deep); border: 1px solid var(--border); color: var(--text);
+  font-size: 13px;
+}
+.filter-row .spacer { flex: 1; }
+
+.run-panel {
+  margin-bottom: 16px; padding: 12px 16px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.run-head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+.run-log {
+  max-height: 180px; overflow-y: auto;
+  background: var(--bg-deep); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim);
+  white-space: pre-wrap; word-break: break-all;
+}
+.run-badge { font-size: 11px; font-family: var(--font-mono); padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-dim); }

@@ -28,8 +28,8 @@ WORKSPACE: Path = Path("D:/ctf-agent/workspace")
 UI_DIST: Path = Path(r"D:\ctf-agent\ui\dist")
 
 
-def state() -> dict:
-    f = WORKSPACE / "state.json"
+def state(ws: Path | None = None) -> dict:
+    f = (ws or WORKSPACE) / "state.json"
     if not f.exists():
         return {"challenges": []}
     try:
@@ -38,13 +38,14 @@ def state() -> dict:
         return {"challenges": []}
 
 
-def hints_text(cid: str) -> str:
-    f = WORKSPACE / "hints" / f"{cid}.md"
+def hints_text(cid: str, ws: Path | None = None) -> str:
+    f = (ws or WORKSPACE) / "hints" / f"{cid}.md"
     return f.read_text(encoding="utf-8") if f.exists() else ""
 
 
-def worker_log_tail(cid: str, lines: int = 40, line_cap: int = 4000) -> str:
-    wd = WORKSPACE / "challenges" / cid
+def worker_log_tail(cid: str, lines: int = 40, line_cap: int = 4000,
+                    ws: Path | None = None) -> str:
+    wd = (ws or WORKSPACE) / "challenges" / cid
     if not wd.exists():
         return ""
     logs = sorted(wd.glob("worker_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -186,22 +187,23 @@ def _challenge_view(c: dict) -> dict:
     }
 
 
-# ---- 用量缓存（T14：worker 日志 mtime 变化才重算） ----
+# ---- 用量缓存（T14：worker 日志 mtime 变化才重算；按 workspace 分桶） ----
 _USAGE_CACHE: dict[str, tuple[float, dict]] = {}
 
 
-def _usage_cached(cid: str) -> dict:
+def _usage_cached(cid: str, ws: Path | None = None) -> dict:
     import tracing  # 同目录模块
-    wd = WORKSPACE / "challenges" / cid
+    wd = (ws or WORKSPACE) / "challenges" / cid
     if not wd.exists():
         return {"totalTokens": 0, "cost": 0.0}
     mtimes = [p.stat().st_mtime for p in wd.glob("worker_*.log")]
     key = max(mtimes) if mtimes else 0.0
-    hit = _USAGE_CACHE.get(cid)
+    cache_key = f"{ws or WORKSPACE}::{cid}"
+    hit = _USAGE_CACHE.get(cache_key)
     if hit and hit[0] == key:
         return hit[1]
     u = tracing.summarize_challenge(wd)
-    _USAGE_CACHE[cid] = (key, u)
+    _USAGE_CACHE[cache_key] = (key, u)
     return u
 
 
@@ -335,6 +337,132 @@ def ui_index():
 @app.get("/ui/<path:path>")
 def ui_static(path: str):
     return send_from_directory(UI_DIST, path)
+
+
+# ---- Benchmark 模块（T-B1：题库清单 + 跑分进程管理 + 同款挑战视图）----
+import bench_admin  # noqa: E402
+
+
+@app.get("/api/bench/list")
+def api_bench_list():
+    return jsonify({"benchmarks": bench_admin.list_benchmarks()})
+
+
+@app.post("/api/bench/run")
+def api_bench_run():
+    body = request.get_json(silent=True) or {}
+    bid = str(body.get("id") or "")
+    ok, msg = bench_admin.start(bid, body.get("filters") or {})
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@app.post("/api/bench/stop")
+def api_bench_stop():
+    ok, msg = bench_admin.stop()
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@app.get("/api/bench/status")
+def api_bench_status():
+    return jsonify(bench_admin.status())
+
+
+def _bench_ws() -> Path:
+    return bench_admin.BENCH_WS
+
+
+@app.get("/api/bench/state")
+def api_bench_state():
+    data = state(_bench_ws())
+    return jsonify({"challenges": [_challenge_view_ws(c, _bench_ws())
+                                  for c in data.get("challenges", [])]})
+
+
+def _challenge_view_ws(c: dict, ws: Path) -> dict:
+    raw = c.get("raw") or {}
+    attempts = c.get("attempts") or []
+    elapsed = 0.0
+    for a in attempts:
+        elapsed += float(a.get("elapsed") or 0.0)
+    cid = c.get("cid", "?")
+    usage = _usage_cached(cid, ws)
+    return {
+        "cid": cid,
+        "name": raw.get("name", ""),
+        "category": raw.get("category", "?"),
+        "status": c.get("status", "?"),
+        "races": int(c.get("races") or len(attempts)),
+        "attempts": len(attempts),
+        "elapsed": round(elapsed, 1),
+        "wrong_submits": int(c.get("wrong_submits") or 0),
+        "verify_required": bool(c.get("verify_required")),
+        "pending_flags": (c.get("triage") or {}).get("pending_flags") or [],
+        "tokens": usage["totalTokens"],
+        "cost": round(usage["cost"], 4),
+        "digest_first": str(raw.get("description", "") or "")[:80],
+    }
+
+
+@app.get("/api/bench/digest/<cid>")
+def api_bench_digest(cid: str):
+    import digest
+    return jsonify({"cid": cid, "digest": digest.digest(_bench_ws(), cid)})
+
+
+@app.get("/api/bench/logs/<cid>")
+def api_bench_logs(cid: str):
+    tail = int(request.args.get("tail", 200))
+    tail = max(1, min(tail, 500))
+    return jsonify({"cid": cid, "text": worker_log_tail(cid, tail, line_cap=2000, ws=_bench_ws())})
+
+
+@app.get("/api/bench/board/<cid>")
+def api_bench_board(cid: str):
+    data = state(_bench_ws())
+    for c in data.get("challenges", []):
+        if c.get("cid") == cid:
+            return jsonify({"cid": cid, "board": c.get("board") or {}})
+    return jsonify({"cid": cid, "board": {}})
+
+
+@app.post("/api/bench/hints/<cid>")
+def api_bench_hints(cid: str):
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "msg": "empty text"}), 400
+    f = _bench_ws() / "hints" / f"{cid}.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(f"\n## {stamp}\n{text}\n")
+    return jsonify({"ok": True, "cid": cid})
+
+
+@app.post("/api/bench/confirm/<cid>")
+def api_bench_confirm(cid: str):
+    body = request.get_json(silent=True) or {}
+    flag = str(body.get("flag") or "").strip()
+    if not flag:
+        return jsonify({"ok": False, "msg": "empty flag"}), 400
+    d = _bench_ws() / "requests" / "confirm"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{cid}.json").write_text(json.dumps({"flag": flag}), encoding="utf-8")
+    return jsonify({"ok": True, "cid": cid})
+
+
+@app.post("/api/bench/verify/<cid>")
+def api_bench_verify(cid: str):
+    d = _bench_ws() / "requests" / "verify"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{cid}.toggle").write_text("", encoding="utf-8")
+    return jsonify({"ok": True, "cid": cid})
+
+
+@app.get("/api/bench/usage/<cid>")
+def api_bench_usage(cid: str):
+    u = _usage_cached(cid, _bench_ws())
+    return jsonify({"cid": cid, "tokens": u["totalTokens"], "cost": round(u["cost"], 4)})
 
 
 def main(argv: list[str] | None = None) -> int:
