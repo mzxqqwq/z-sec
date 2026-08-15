@@ -1,7 +1,9 @@
 {
   "category_routing": {
-    "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"}],
-    "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"}],
+    "crypto": [{"model": "deepseek-v4-flash", "thinking": "low"},
+               {"model": "deepseek-v4-flash", "thinking": "minimal"}],
+    "misc":   [{"model": "deepseek-v4-flash", "thinking": "low"},
+               {"model": "deepseek-v4-flash", "thinking": "minimal"}],
     "rev":    [{"model": "deepseek-v4-flash", "thinking": "low"},
                {"model": "deepseek-v4-flash", "thinking": "minimal"}],
     "pwn":    [{"model": "deepseek-v4-pro",   "thinking": "medium"},

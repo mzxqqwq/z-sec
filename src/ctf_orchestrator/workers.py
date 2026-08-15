@@ -26,13 +26,17 @@ FLAG_PATTERNS: list[re.Pattern] = [
     re.compile(rb"(?<![a-zA-Z0-9_])[0-9a-f]{32}(?![0-9a-f])", re.I),
 ]
 
-# 描述/教程里常见的占位符 flag，绝不提交
+# 描述/教程里常见的占位符 flag，绝不提交（覆盖各前缀变体）
 PLACEHOLDER_FLAG_RES = [
     re.compile(p, re.I) for p in (
-        r"^flag\{path\}$", r"^flag\{md5hash\}$", r"^flag\{sha256\}$",
-        r"^flag\{flag\}$", r"^flag\{here\}$", r"^flag\{your_flag\}$",
-        r"^flag\{\.{3}\}$", r"^flag\{\s*\.\.\.\s*\}$",
-        r"^ctf\{.*(?:example|placeholder|your_flag).*\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{path\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{(?:md5hash|sha256|sha1|base64|hex)\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{flag\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{here\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{your_flag\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{\.{3}\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{\s*\.\.\.\s*\}$",
+        r"^(?:flag|ctf|dasctf|csawctf)\{.*(?:example|placeholder).*\}$",
     )
 ]
 

@@ -19,9 +19,17 @@
   4. 提交冷却吞掉后续候选 → try_submit_wait 等待重试
 - 结论：评测体系按设计工作——第一次跑真题就暴露了 4 个真问题
 
-## v0.4（L1 修复后）
-- git 版本：待记录
-- L1 重跑成绩：待记录
+## v0.5（L1 最终：静态题集 7 题）
+- git 632a2a4
+- **成绩 7/7 全解**（808s）：crypto 2/2、misc 1/1（ezmaze）、rev 4/4
+- 亮点：whataxor 僵局检测（错误率 60%）触发 kill+带警告重派，重派后成功解出——
+  僵局-重派闭环第一次在实战中证明价值
+- 修复累计：csawctf 前缀/空格 flag/占位符过滤/冷却等待/目录大小写/子目录附件/服务题排除
+
+## DASCTF 2025 真题清单（13 题，dasctf-2025-manifest.json）
+- 7 题有真值（4 自解 + 3 writeup）；6 题 unknown（附 writeup 链接）
+- 已解出的：lost LFSR key、DigitalSignature、stegh、ezmac、androidfile（自解）
+  Steganography、androidfff（writeup）
 
 ## v0.2（P1 后：BasePlatform + 规划器 + 签名式僵局检测 + 解析回退）
 - 2026-08-15：misc 66s / crypto 81s / pwn 111s / web 128s（4/4，web 单独复测确认无僵局误杀）
