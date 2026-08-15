@@ -22,7 +22,7 @@ D:\ctf-agent\
 │   ├── ctf_orchestrator\ctf_orchestrator.py   # 指挥官：黑板+调度+交卷（自研）
 │   ├── dasctf_client\dasctf_client.py          # 考场接口：平台 API 客户端（自研）
 │   ├── pi-ext\kali.ts                          # Kali 桥：pi 工具转发扩展（自研）
-│   ├── run-pi.ps1                              # 解题员启动器（key+扩展+模型默认值）
+│   ├── run-pi.ps1                              # 手动调试用启动器（勿用于编排；见下警示）
 │   ├── mock_platform\mock_platform.py          # 假考场（演练用）
 │   └── skills\                                 # 待建：web/pwn/re/crypto/misc 技能包
 ├── workspace\                                  # 运行时数据（黑板）
@@ -79,6 +79,9 @@ loop（每 N 秒一轮）:
     prompt = 模板(题目JSON, 附件路径, hints/<cid>.md 若存在)
     output = 启动 pi worker(prompt)        # ③ solve，超时 25 分钟
     记录 attempt{at, elapsed, output_tail}
+    # 注：worker 由编排器直接 node 调 pi CLI（DEFAULT_PI_CMD + workers._worker_env 注入
+    # key/KALI_API_URL）。切勿经 PowerShell 转发 prompt：PS5.1 会把含双引号的参数
+    # 拆成多个 argv，以 - 开头的片段触发 pi "Unknown option" 秒退（事故见 EVAL-LOG）。
     flags = 正则抽取(output)               # ④ 交卷
     对 flags[:3] 依次:
       若错误提交数 < 3: r = 平台提交(cid, flag)

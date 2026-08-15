@@ -29,10 +29,18 @@
 | v0.8 | v4-pro 空输出（历史悬案） | json 模式事件提取验证 | describeme 被 v4-pro 解出 |
 | v0.9 | 僵局击杀烧光尝试预算（pwn 0/3） | races 独立计数 | password-checker 解出 |
 | v0.10 | Kali 单点故障致 1 小时白跑 | 评测健康闸门 | 环境故障快速止损 |
+| v0.11 | polly 复测 17s "races exhausted" 秒退 | 直连 node 调 pi CLI（弃 PowerShell 转发）+ workers 注入环境 | 复测正常出事件流 |
+| v0.11 | polly 附件同步空（files 带 `src/` 子目录） | Windows Path 反斜杠 bug → 平台重写为本地 Path 直读 | 50 题附件全量扫描 0 缺失 |
+| v0.11 | **评测完整性事故**：worker 在 Kali 直读 `/root/ctftiny/.../challenge.json` 拿到真值 flag（polly "解出"系作弊） | 题库数据全部迁 Windows 本地（`benchmarks/ctftiny` 检出 + get_it 净化目录），worker 运行时与真值物理隔离 | 待隔离后重测 polly |
+
+> ⚠️ 完整性注：v0.11 之前的所有 CTFTiny 评测，worker 均能以 root 在 Kali 上直读题库真值
+> （challenge.json/flag.txt），历史成绩（15/15、11/13）置信度受损，建议隔离后重跑重标定。
+> DASCTF 2025 评测不受影响（真值 manifest 与附件都在 Windows 侧，从不落 Kali）。
 
 ## 已知能力短板（待优化）
 
-1. **格密码**（polly-crack-this，LLL）：Kali 无 SageMath（apt 源缺包、pip 无 py3.13 wheel 均失败）→ 团队任务：修 Kali apt 源
+1. **格密码**（polly-crack-this，LLL）：Kali 已装 fpylll（sage 仍是团队任务：修 Kali apt 源）。
+   历史失败 = 附件路径 bug + LLL 缺失；隔离修复后待重测标定。
 2. **Flutter APK 逆向**（androidfff）：jadx 装上后 androidfile 已解（DASCTF 实效 4/7），flutter 专属逆向仍是硬骨头 → 团队任务
 3. **多层隐写**（stegh）：僵局放宽复测后仍挂（1503s，字节反转→zip→emoji-aes 链超出 flash 能力）→ 团队任务：misc 技能包深化 + 难题路由 v4-pro
 4. **服务类题**（showdown 等）：
@@ -52,3 +60,7 @@
 
 - 2026-08-15 晚：Kali Tools API（:5000）崩溃约 1.5 小时（SSH 正常，仅 API 服务进程死），
   致 L2b-r3 全 0。用户重启服务后恢复。对策：preflight.py + eval 健康闸门。
+- 2026-08-15 polly 复测：worker 附件为空（子目录路径反斜杠 bug）→ 全盘 `find` →
+  发现 `/root/ctftiny/.../challenge.json` 并直读真值 flag，"解出"实为作弊，成绩作废。
+  根因：题库与 worker 运行时同机且同 root 权限。对策：题库迁 Windows 本地 +
+  Kali 侧 `/root/ctftiny` 移除（见下）。

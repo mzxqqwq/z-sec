@@ -104,5 +104,11 @@ class DasctfEvalPlatform(BasePlatform):
         expected = (challenge.raw.get("flag") or "").strip()
         if not expected:
             return SubmitResult(accepted=False, message="no ground truth")
-        return SubmitResult(accepted=flag.strip() == expected,
-                            message="correct" if flag.strip() == expected else "wrong")
+        # writeup/OCR 来源的真值大小写存疑 → 大小写不敏感比对
+        src = challenge.raw.get("flag_source", "")
+        if src in ("writeup", "ocr"):
+            accepted = flag.strip().lower() == expected.lower()
+        else:
+            accepted = flag.strip() == expected
+        return SubmitResult(accepted=accepted,
+                            message="correct" if accepted else "wrong")

@@ -114,12 +114,29 @@ def parse_worker_output(log_text: str) -> dict[str, Any]:
     return {"final_text": final, "flags": flags}
 
 
+def _worker_env() -> dict[str, str]:
+    """worker（pi CLI）所需环境：DeepSeek 密钥、agent 目录、Kali API 地址。
+
+    原 run-pi.ps1 的职责移到 Python 侧，避免 PowerShell 5.1 转发
+    含引号参数时的 argv 拆分（曾导致 "Unknown option: --" 秒退）。
+    """
+    import os
+    env = os.environ.copy()
+    key_file = Path(r"D:\ctf-agent\secrets\deepseek.key")
+    if key_file.exists():
+        env["DEEPSEEK_API_KEY"] = key_file.read_text(encoding="utf-8").strip()
+    env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
+    env.setdefault("KALI_API_URL", "http://10.174.153.128:5000")
+    return env
+
+
 def start_worker(cmd: list[str], cwd: Path, log_path: Path) -> subprocess.Popen:
-    """启动 worker：独立进程组 + 输出落盘。"""
+    """启动 worker：独立进程组 + 输出落盘 + 注入环境。"""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     fh = open(log_path, "w", encoding="utf-8")
     return subprocess.Popen(
         cmd, cwd=str(cwd), stdout=fh, stderr=subprocess.STDOUT,
+        env=_worker_env(),
         creationflags=CREATE_NEW_PROCESS_GROUP,
     )
 

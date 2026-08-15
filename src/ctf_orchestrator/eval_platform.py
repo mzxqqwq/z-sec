@@ -1,19 +1,20 @@
-"""CTFTiny 评测平台适配器（BasePlatform 实现）。
+"""CTFTiny 评测平台适配器（BasePlatform 实现）——本地数据源版。
 
-- 题目与判题数据源：Kali 上的 /root/ctftiny（CSAW 真题，challenge.json 含 flag 真值）
-- 附件通道：经 Kali REST API 用 base64 取回 Windows 工作区（复用编排器现有管道）
-- 判题：flag 精确比对（strip 后）
+- 题目与判题数据源：Windows 本地 D:\\ctf-agent\\benchmarks\\ctftiny（公开仓库检出）
+- 附件：直接从本地目录复制到 Windows 工作区，再由编排器推送到 Kali
+- 判题：flag 精确比对（strip 后），description 中出现的真值一律脱敏
+
+为什么改成本地版：此前题库整树放在 Kali /root/ctftiny，worker 的 bash
+以 root 跑在 Kali 上，可直接 cat challenge.json/flag.txt 拿到真值
+（2026-08-15 polly 复测即因 worker 直读 challenge.json 作弊解，成绩作废）。
+题库数据放 Windows 后，worker 运行时（Kali）与真值数据物理隔离。
 """
 from __future__ import annotations
 
-import base64
 import json
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
-
-import requests
 
 sys_path_inserted = False
 try:
@@ -49,14 +50,16 @@ DIFFICULTY: dict[str, str] = {
 CATEGORY_MAP = {"cry": "crypto", "for": "misc", "msc": "misc",
                 "pwn": "pwn", "rev": "rev", "web": "web"}
 
+# 仓库内 Windows 非法路径 → 本地净化目录（get_it? 的 ? 在 NTFS 不合法）
+PATH_OVERRIDES: dict[str, str] = {
+    "ctftiny/pwn/get_it?": "ctftiny/pwn/get_it_q",
+}
+
+LOCAL_ROOT_DEFAULT = r"D:\ctf-agent\benchmarks\ctftiny"
+
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
-
-
-def _shq(s: str) -> str:
-    """shell 单引号引用（路径可能含空格，如 "rebug 2"）。"""
-    return "'" + s.replace("'", r"'\''") + "'"
 
 
 # 按规范化题目名匹配难度（README 表的下划线名与 ctftiny.json 的连字符/大小写名统一）
@@ -67,13 +70,13 @@ class CtftinyPlatform(BasePlatform):
     name = "ctftiny"
 
     def __init__(self, kali_url: str = "http://10.174.153.128:5000",
-                 root: str = "/root/ctftiny",
+                 root: str = LOCAL_ROOT_DEFAULT,
                  difficulties: Optional[list[str]] = None,
                  categories: Optional[list[str]] = None,
                  exclude: Optional[list[str]] = None,
                  max_files_mb: float = 20.0) -> None:
-        self.kali_url = kali_url.rstrip("/")
-        self.root = root
+        self.kali_url = kali_url.rstrip("/")  # 保留：worker 运行时健康检查等仍用它
+        self.root = Path(root)
         self.difficulties = difficulties  # None = 全部
         self.categories = categories      # None = 全部
         self.exclude = set(exclude or [])
@@ -83,18 +86,19 @@ class CtftinyPlatform(BasePlatform):
         self._dir_cache: dict[str, str] = {}
         self._load_meta()
 
-    def _api(self, command: str, timeout: int = 300) -> dict[str, Any]:
-        r = requests.post(f"{self.kali_url}/api/command",
-                          json={"command": command}, timeout=timeout)
-        r.raise_for_status()
-        return r.json()
+    # ---------- 本地文件访问 ----------
+    def _local(self, rel: str) -> Path:
+        """仓库相对路径 → 本地 Path（先精确，再 Windows 大小写差异由 OS 吸收，
+        get_it? 等非法路径用 PATH_OVERRIDES 映射）。"""
+        rel = rel.replace("/", "\\")
+        if rel in PATH_OVERRIDES:
+            return self.root / PATH_OVERRIDES[rel]
+        return self.root / rel
 
     def _load_meta(self) -> None:
-        raw = self._api(f"cat {self.root}/ctftiny.json")["stdout"]
-        data = json.loads(raw)
+        data = json.loads((self.root / "ctftiny.json").read_text(encoding="utf-8"))
         for key, entry in data.items():
             raw_cat = (entry.get("category") or key.split("-")[0]).lower()
-            # ctftiny.json 的 category 已是全称；兼容短码
             cat = {"cry": "crypto", "for": "misc", "msc": "misc", "re": "rev"}.get(raw_cat, raw_cat)
             self._meta[key] = {
                 "cid": key,
@@ -106,31 +110,26 @@ class CtftinyPlatform(BasePlatform):
             }
 
     def _resolve_dir(self, rel: str) -> str:
-        """目录名解析：先精确，再大小写不敏感，最后规范化匹配（下划线/空格/大小写差异）。"""
+        """目录名解析：先精确，再规范化匹配（下划线/空格/大小写/非法字符差异）。"""
         if rel in self._dir_cache:
             return self._dir_cache[rel]
-        full = f"{self.root}/{rel}"
-        ok = self._api(f"test -d {_shq(full)} && echo OK", timeout=60).get("stdout", "").strip()
-        if ok == "OK":
+        override = PATH_OVERRIDES.get(rel)
+        if override and (self.root / override).is_dir():
+            self._dir_cache[rel] = override
+            return override
+        full = self._local(rel)
+        if full.is_dir():
             self._dir_cache[rel] = rel
             return rel
-        parent = str(Path(rel).parent)
+        parent = self._local(str(Path(rel).parent))
         base = Path(rel).name
-        found = self._api(
-            f"find {_shq(f'{self.root}/{parent}')} -maxdepth 1 -type d -iname {_shq(base)} 2>/dev/null | head -1",
-            timeout=60).get("stdout", "").strip()
-        if found:
-            resolved = found.replace(self.root + "/", "")
-            self._dir_cache[rel] = resolved
-            return resolved
-        # 规范化匹配（"rebug_2" ↔ "Rebug 2"、大小写）
         nbase = _norm(base)
-        listing = self._api(f"ls -1 {_shq(f'{self.root}/{parent}')} 2>/dev/null", timeout=60).get("stdout", "")
-        for name in listing.splitlines():
-            if name.strip() and _norm(name.strip()) == nbase:
-                resolved = f"{parent}/{name.strip()}"
-                self._dir_cache[rel] = resolved
-                return resolved
+        if parent.is_dir():
+            for name in parent.iterdir():
+                if name.is_dir() and _norm(name.name) == nbase:
+                    resolved = str(Path(rel).parent) + "/" + name.name
+                    self._dir_cache[rel] = resolved
+                    return resolved
         self._dir_cache[rel] = rel
         return rel
 
@@ -140,12 +139,26 @@ class CtftinyPlatform(BasePlatform):
             if meta is None:
                 return {}
             rel = self._resolve_dir(meta["path"])
-            out = self._api(f"cat {_shq(f'{self.root}/{rel}/challenge.json')} 2>/dev/null")["stdout"]
+            path = self._local(rel) / "challenge.json"
             try:
-                self._details[cid] = json.loads(out) if out.strip() else {}
-            except json.JSONDecodeError:
-                self._details[cid] = {}
+                detail = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                detail = {}
+            self._details[cid] = self._redact(detail)
         return self._details.get(cid, {})
+
+    @staticmethod
+    def _redact(detail: dict[str, Any]) -> dict[str, Any]:
+        """description 脱敏：真值 flag 不得出现在任何下发给 worker 的字段里。"""
+        flag = str(detail.get("flag") or "")
+        if not flag:
+            return detail
+        out = dict(detail)
+        desc = str(out.get("description") or "")
+        for variant in {flag, flag.replace("{", "{{"), flag.replace("}", "}}")}:
+            desc = desc.replace(variant, "flag{***REDACTED***}")
+        out["description"] = desc
+        return out
 
     def _enabled(self, cid: str) -> bool:
         if cid in self.exclude:
@@ -186,25 +199,21 @@ class CtftinyPlatform(BasePlatform):
         rel = self._resolve_dir(meta.get("path", ""))
         if not rel:
             return []
+        base = self._local(rel)
         paths: list[Path] = []
         dest_dir.mkdir(parents=True, exist_ok=True)
         for fname in detail.get("files") or []:
-            safe_rel = Path(str(fname).lstrip("./"))
-            if safe_rel.is_absolute() or ".." in safe_rel.parts:
+            raw = str(fname).lstrip("./").replace("\\", "/")
+            if raw.startswith("/") or ".." in raw.split("/"):
                 continue  # 防路径穿越
-            cmd = f"base64 -w0 {_shq(f'{self.root}/{rel}/{safe_rel}')} 2>/dev/null"
-            res = self._api(cmd, timeout=600)
-            b64 = (res.get("stdout") or "").strip()
-            if not b64:
+            src = base / Path(*raw.split("/"))
+            if not src.is_file():
                 continue
-            try:
-                data = base64.b64decode(b64)
-            except Exception:
-                continue
+            data = src.read_bytes()
             if len(data) > self.max_files_mb * 1024 * 1024:
-                print(f"[ctftiny] skip large file {safe_rel} ({len(data)/1e6:.1f}MB)")
+                print(f"[ctftiny] skip large file {raw} ({len(data)/1e6:.1f}MB)")
                 continue
-            out = dest_dir / safe_rel.name
+            out = dest_dir / Path(raw).name
             out.write_bytes(data)
             paths.append(out)
         return paths

@@ -29,9 +29,16 @@ from planning import Planner  # noqa: E402
 from stuck import StuckMonitor  # noqa: E402
 
 WORKER_TIMEOUT = 1500  # 单个 worker 硬上限（P1 引入逐题预算后收紧）
+# 直接调 node cli.js，不经 PowerShell：
+# PowerShell 5.1 把含双引号的原生参数转发给 node 时会拆成多个 argv
+# （prompt 里的 "FLAG: ..." / 题目 JSON / 计划 JSON 全带引号），
+# 以 - 开头的片段直接触发 pi CLI "Unknown option" 退出。
+# Python subprocess 的 list2cmdline 会正确转义内嵌引号。
+# 密钥与环境由 workers.start_worker 注入（见 _worker_env）。
 DEFAULT_PI_CMD = [
-    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-    r"D:\ctf-agent\src\run-pi.ps1",
+    "node", r"D:\ctf-agent\pi-mono\packages\coding-agent\dist\cli.js",
+    "--provider", "deepseek",
+    "-e", r"D:\ctf-agent\src\pi-ext\kali.ts",
 ]
 
 DEFAULT_MODEL_CONFIG = {

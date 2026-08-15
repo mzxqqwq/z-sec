@@ -7,6 +7,13 @@
 #   D:\ctf-agent\pi-mono built (npm run build:offline)
 #   D:\ctf-agent\secrets\deepseek.key contains the API key
 #   Kali API (default http://10.174.153.128:5000) online
+#
+# WARNING: PowerShell 5.1 forwards args containing double quotes to node
+# by SPLITTING them into multiple argv (prompt 里的 "FLAG: ..."、题目 JSON、
+# 计划 JSON 都会被拆). Any fragment starting with "-" then kills pi with
+# "Unknown option: --". The orchestrator therefore calls node directly
+# (see ctf_orchestrator.DEFAULT_PI_CMD + workers._worker_env).
+# Only use this script manually with prompts that contain NO double quotes.
 $ErrorActionPreference = 'Stop'
 
 $Root = 'D:\ctf-agent'
