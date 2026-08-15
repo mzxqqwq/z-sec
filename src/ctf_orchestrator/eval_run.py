@@ -72,6 +72,19 @@ def main(argv: list[str] | None = None) -> int:
     ws = Path(args.workspace)
     ws.mkdir(parents=True, exist_ok=True)
 
+    # 健康闸门：Kali 不可达就拒绝开跑（防止 1 小时评测白跑）
+    if args.platform in ("ctftiny",) and args.kali_url:
+        import requests as _req
+        try:
+            h = _req.get(f"{args.kali_url}/health", timeout=8)
+            if h.status_code != 200 or "healthy" not in h.text:
+                print(f"Kali 健康检查失败: HTTP {h.status_code}")
+                return 2
+        except Exception as e:
+            print(f"Kali 不可达，评测中止: {e}")
+            return 2
+        print("Kali 健康检查通过")
+
     model_config = L1_CONFIG
     if args.config and Path(args.config).exists():
         import json as _json

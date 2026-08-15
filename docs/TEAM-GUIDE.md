@@ -95,14 +95,16 @@
 - **题库**：CTFTiny（CSAW 真题 50 道，含 flag 真值，难度分级）+ DASCTF 2025 真题 13 道 + mock 演练题 4 道
 - **评测流程**：L1 冒烟（easy 10 道）→ L2 全量 → 短板报告（postmortem.py）→ 针对性优化 → 重测
 - **记录**：docs/EVAL-LOG.md（版本-成绩对照）+ git 提交记录
-- **评测成绩**：（L1/L2 完成后填此表）
+- **训练闭环实证**（v0.3→v0.9 的 9 次版本迭代，每轮都靠评测发现真问题）：
 
-| 版本 | 题集 | 解题率 | 平均耗时 | 备注 |
-|---|---|---|---|---|
-| v0.3 | CTFTiny L1（8 道 easy，含 1 服务题） | 4/8 → 定位 8 个 bug | 1174s | 首次真题评测，暴露 csawctf 前缀/空格 flag/占位符/冷却等问题 |
-| v0.5 | CTFTiny L1 静态（7 道 easy） | **7/7 全解** | 808s（平均 115s/题） | crypto 2/2、misc 1/1、rev 4/4；僵局检测实战立功（whataxor kill+重派后解出） |
-| v0.6 | CTFTiny L2（easy+very_easy 全类 8 道，含 pwn） | **8/8 全解** | 786s | pwn 首胜；双 worker 竞速消除方差；僵局检测两次实战立功 |
-| v0.7 | DASCTF 2025 真题（7 道有真值） | **3/7** | 4585s | LFSR 密码/ecrecover/ezmac 解出；APK×2、多层隐写、盲水印未解——真实赛题难度标杆 |
+| 版本 | 评测发现 | 修复 | 效果 |
+|---|---|---|---|
+| v0.4 | csawctf 前缀截断、空格 flag 漏掉、占位符误交、冷却吞候选 | flag 正则重写+黑名单+冷却重试 | rev 2/4→4/4 |
+| v0.5 | 目录大小写不一致（ezmaze→ezMaze）、子目录附件丢失 | 路径解析三级回退 | ezmaze 解出 |
+| v0.6 | crypto/misc 单 worker 方差 | 双 worker 竞速 | L2 6/8→8/8 |
+| v0.7 | 空格路径判题 bug（rebug 2） | shell 引号化 | rebug-2 平反 |
+| v0.8 | v4-pro 空输出（历史问题） | json 模式验证 | describeme 被 v4-pro 解出 |
+| v0.9 | 僵局击杀烧预算 | races 独立计数 | pwn 回归修复 |
 
 ## 八、速查
 
