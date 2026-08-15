@@ -141,6 +141,34 @@ def start_worker(cmd: list[str], cwd: Path, log_path: Path) -> subprocess.Popen:
     )
 
 
+def start_worker_rpc(cmd: list[str], cwd: Path, log_path: Path,
+                     extra_env: dict[str, str] | None = None) -> subprocess.Popen:
+    """启动 worker（--mode rpc）：stdout 事件落盘，stdin 保留双向管道供
+    follow_up/steer/abort/conclude 注入（T11，pi rpc-mode 协议）。"""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(log_path, "w", encoding="utf-8")
+    env = _worker_env()
+    if extra_env:
+        env.update({k: str(v) for k, v in extra_env.items()})
+    return subprocess.Popen(
+        cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=fh, stderr=subprocess.STDOUT,
+        env=env,
+        creationflags=CREATE_NEW_PROCESS_GROUP,
+    )
+
+
+def send_rpc(proc: subprocess.Popen, command: dict[str, Any]) -> bool:
+    """向 rpc worker 发一条命令（JSON 行）。失败返回 False。"""
+    if proc.poll() is not None or proc.stdin is None:
+        return False
+    try:
+        proc.stdin.write(json.dumps(command, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        return True
+    except (BrokenPipeError, OSError, ValueError):
+        return False
+
+
 def kill_tree(proc: subprocess.Popen) -> None:
     """组杀：taskkill /T /F 杀整棵进程树（含 pi/powershell 孙子进程）。"""
     if proc.poll() is not None:

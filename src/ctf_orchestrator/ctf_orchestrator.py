@@ -26,10 +26,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import Board, ChallengeState, STATUS_NEW, STATUS_QUEUED, STATUS_SOLVING, \
     STATUS_SOLVED, STATUS_NEEDS_HINT  # noqa: E402
 from workers import (kali_exec, kill_tree, parse_worker_output,  # noqa: E402
-                     start_worker, cleanup_orphans)
+                     start_worker_rpc, send_rpc, cleanup_orphans)
 from platform import BasePlatform, MockHttpPlatform  # noqa: E402
 from planning import Planner  # noqa: E402
 from supervisor import Supervisor  # noqa: E402
+from message_bus import ChallengeMessageBus  # noqa: E402
 
 WORKER_TIMEOUT = 1500  # 单个 worker 硬上限
 # 直接调 node cli.js，不经 PowerShell：
@@ -42,6 +43,7 @@ DEFAULT_PI_CMD = [
     "node", r"D:\ctf-agent\pi-mono\packages\coding-agent\dist\cli.js",
     "--provider", "deepseek",
     "-e", r"D:\ctf-agent\src\pi-ext\kali.ts",
+    "-e", r"D:\ctf-agent\src\pi-ext\loop-detect.ts",
 ]
 
 # 定版：无题型路由，每道题固定 1 强 + 1 弱
@@ -70,6 +72,8 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 - 不要过早宣布失败；一条路线失败时换思路继续，而不是放弃。
 - 提交答案：优先调用 submit_flag 工具（参数 flag 为完整 flag 字符串），平台返回 correct 即完成；
   卡住时可用 get_hint 工具获取官方提示。仅当这两个工具不可用时，才用 "FLAG: <flag内容>" 一行输出。
+- 同题有另一个 worker 在并行解题：每几步调用一次 check_findings 工具查看它的新发现，
+  避免重复它已排除的方向；但它的发现是参考，与你的实测冲突时以实测为准。
 
 {plan_section}
 {continuation_section}
@@ -83,6 +87,29 @@ CONTINUATION_MESSAGE = """\
 - 不要重复已经完成的步骤，基于你的新上下文继续推进；
 - 如果上次方向已经排除，换一个完全不同的方向（检查遗漏的附件、端口、参数）。
 """
+
+CONCLUDE_MESSAGE = """\
+时间到。停止探索，进入收尾：用一段话总结本次已确认的成果与未完成项；
+如果发现了可能的完整 flag，直接输出一行 "FLAG: <flag内容>"。不要开始新的探索。
+"""
+
+
+def _count_new_agent_ends(log_path: Path, offset: int) -> tuple[int, int]:
+    """增量统计日志中 agent_end 事件数。返回 (新增数, 新偏移)。"""
+    try:
+        size = log_path.stat().st_size
+    except OSError:
+        return 0, offset
+    if size < offset:
+        offset = 0
+    count = 0
+    with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+        fh.seek(offset)
+        for line in fh:
+            if '"type":"agent_end"' in line or '"type": "agent_end"' in line:
+                count += 1
+        offset = fh.tell()
+    return count, offset
 
 
 class Orchestrator:
@@ -261,22 +288,32 @@ class Orchestrator:
 
         procs: dict[Any, dict[str, Any]] = {}
         starts: dict[Any, float] = {}
+        bus_path = workdir / "message_bus.json"
+        if not bus_path.exists():
+            bus_path.write_text('{"findings": [], "cursors": {}}', encoding="utf-8")
+        bus = ChallengeMessageBus(bus_path)
 
         def dispatch(idx: int, cfg: dict[str, str], prompt: str) -> None:
             tag = f"{cfg['model']}:{cfg['thinking']}".replace("/", "_").replace(":", "-")
             log_path = workdir / f"worker_{idx}_{tag}.log"
             cmd = (self.pi_cmd + ["--model", cfg["model"], "--thinking", cfg["thinking"],
-                                  "--mode", "json", "--kali", remote_roots[idx],
-                                  "--cid", cid, "-p", prompt])
-            proc = start_worker(cmd, workdir, log_path)
-            procs[proc] = {**cfg, "log": log_path, "idx": idx}
+                                  "--mode", "rpc", "--kali", remote_roots[idx],
+                                  "--cid", cid])
+            proc = start_worker_rpc(cmd, workdir, log_path,
+                                    extra_env={"MESSAGE_BUS_FILE": str(bus_path),
+                                               "WORKER_TAG": tag})
+            procs[proc] = {**cfg, "log": log_path, "idx": idx,
+                           "proc": proc, "agent_ends": 0, "log_offset": 0}
             starts[proc] = time.time()
+            # rpc 模式不消费 -p：初始任务经 stdin prompt 下发
+            send_rpc(proc, {"type": "prompt", "message": prompt, "streamingBehavior": "steer"})
             print(f"[{cid}] worker {idx} started: {tag} (pid {proc.pid})")
 
         for i, cfg in enumerate(configs):
             dispatch(i, cfg, base_prompt)
 
         solved = False
+        conclude_sent = False
         deadline = time.time() + WORKER_TIMEOUT
         while procs and not solved and time.time() < deadline:
             # ---- Supervisor 旁路审查（6 轮节奏，只纠偏不杀 worker）----
@@ -292,6 +329,28 @@ class Orchestrator:
                 self.board.save()
                 print(f"[{cid}] supervisor reminder: {reminder[:80]}...")
 
+            # ---- ralph-loop 进程内续跑：agent_end 且未解 → 注入继续（T11，实测 prompt+steer 可触发新回合）----
+            for p, meta in procs.items():
+                if p.poll() is not None:
+                    continue
+                n, off = _count_new_agent_ends(meta["log"], meta["log_offset"])
+                meta["log_offset"] = off
+                if n > 0 and not conclude_sent and (deadline - time.time()) > 120:
+                    if send_rpc(p, {"type": "prompt", "message": CONTINUATION_MESSAGE.strip(),
+                                    "streamingBehavior": "steer"}):
+                        print(f"[{cid}] {meta['model']} agent_end -> continuation prompt")
+
+            # ---- conclude（T11）：deadline 前 90s 收尾总结，不丢成果 ----
+            if not conclude_sent and time.time() > deadline - 90:
+                conclude_sent = True
+                for p in list(procs):
+                    if p.poll() is not None:
+                        continue
+                    send_rpc(p, {"type": "abort"})
+                    send_rpc(p, {"type": "prompt", "message": CONCLUDE_MESSAGE,
+                                 "streamingBehavior": "steer"})
+                print(f"[{cid}] conclude phase: abort + summary request sent")
+
             finished = [p for p in procs if p.poll() is not None]
             for p in finished:
                 meta = procs.pop(p)
@@ -305,6 +364,10 @@ class Orchestrator:
                                     "output_tail": parsed["final_text"][-4000:],
                                     "flags": flags})
                 self.board.save()
+                # T10：worker 完成一轮 → 投递发现摘要到 message bus（他人未读可见）
+                if parsed["final_text"]:
+                    bus.post(f"{meta['model']}:{meta['thinking']}",
+                             parsed["final_text"][:500])
                 print(f"[{cid}] worker {meta['model']} done in {elapsed:.0f}s, flags={flags[:3]}")
                 if flags:
                     for flag in flags[:3]:

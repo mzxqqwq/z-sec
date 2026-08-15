@@ -288,6 +288,48 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ---------- message bus（T10：同题其他 worker 的发现，排除自己、已读不回传） ----------
+	let busCursor = 0;
+	pi.registerTool({
+		name: "check_findings",
+		label: "Check findings",
+		description:
+			"查看同题其他 worker 的最新发现摘要（排除自己，已读不回传）。建议每几步调用一次；切换路线前、怀疑自己忘了别人的结论时也调用。",
+		promptSnippet: "check_findings()",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const busFile = process.env.MESSAGE_BUS_FILE;
+			const tag = process.env.WORKER_TAG ?? "worker";
+			if (!busFile) {
+				return { content: [{ type: "text", text: "(message bus 未配置)" }], details: undefined };
+			}
+			const fs = req("node:fs") as typeof import("node:fs");
+			try {
+				const data = JSON.parse(fs.readFileSync(busFile, "utf-8")) as {
+					findings?: Array<{ model?: string; content?: string }>;
+				};
+				const findings = Array.isArray(data.findings) ? data.findings : [];
+				const unread = findings
+					.slice(busCursor)
+					.filter((f) => (f?.model ?? "") !== tag);
+				busCursor = findings.length;
+				if (unread.length === 0) {
+					return { content: [{ type: "text", text: "(没有来自其他 worker 的新发现)" }], details: undefined };
+				}
+				const parts = unread.map((f) => `[${f?.model ?? "?"}] ${f?.content ?? ""}`);
+				return {
+					content: [{ type: "text", text: "**Findings from other agents:**\n\n" + parts.join("\n\n") }],
+					details: undefined,
+				};
+			} catch (e) {
+				return {
+					content: [{ type: "text", text: `check_findings 失败: ${e instanceof Error ? e.message : String(e)}` }],
+					details: undefined,
+				};
+			}
+		},
+	});
+
 	const localCwd = process.cwd();
 	const localRead = createReadTool(localCwd);
 	const localWrite = createWriteTool(localCwd);
