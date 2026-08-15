@@ -63,9 +63,10 @@ class DasctfEvalPlatform(BasePlatform):
         for e in self._entries:
             if self.skip_unknown and e.get("flag") == "unknown":
                 continue
-            # 描述里剔除任何 flag 形态字符串，防止跨题泄漏污染提示词
-            desc = re.sub(r"(?:flag|ctf|dasctf|csawctf)\{[^\r\n{}]{3,120}\}", "[REDACTED]",
-                          str(e.get("solve_notes", "")), flags=re.I)
+            # 描述：评测不提供 writeup 解题思路。solve_notes 是 writeup 全解，
+            # 曾直接作为 description 下发导致"开卷答题"（2026-08-15 Steganography
+            # 复测发现），这里一律置空——worker 只能拿到题名/分类/附件。
+            desc = ""
             out.append(NormalizedChallenge(
                 platform=self.name,
                 challenge_id=e["name"],
