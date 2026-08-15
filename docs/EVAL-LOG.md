@@ -38,6 +38,15 @@
 - 僵局检测再次实战：whataxor 循环 worker 被杀，竞速另一路解出
 - 结论：双 worker 竞速是抗方差的正确答案；L1+L2（easy 段）解题率 100%
 
+## v0.7（L2b：moderate 13 题）
+- git 待提交
+- 首轮 9/13；发现判题 bug（目录名含空格 "rebug 2" → shell 命令未加引号 → 判题数据读空，
+  rebug-2 提交正确 flag 被冤判）→ 修复后 **修正成绩 10/13**
+- 真实能力边界（3 题）：describeme（crypto，答错）、polly-crack-this（crypto，64s 秒弃）、
+  password-checker（pwn moderate，v4-pro 680s 被杀）
+- 僵局检测第三次实战立功（beleaf）
+- 修复：shell 路径全量引号化（_shq）、目录解析三级回退（精确→iname→规范化）
+
 ## v0.2（P1 后：BasePlatform + 规划器 + 签名式僵局检测 + 解析回退）
 - 2026-08-15：misc 66s / crypto 81s / pwn 111s / web 128s（4/4，web 单独复测确认无僵局误杀）
 - 新能力：平台抽象层（mock/dasctf 双适配器）、planning 阶段（计划注入 worker）、

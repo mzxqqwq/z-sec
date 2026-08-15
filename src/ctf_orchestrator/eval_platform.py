@@ -54,6 +54,11 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
 
 
+def _shq(s: str) -> str:
+    """shell 单引号引用（路径可能含空格，如 "rebug 2"）。"""
+    return "'" + s.replace("'", r"'\''") + "'"
+
+
 # 按规范化题目名匹配难度（README 表的下划线名与 ctftiny.json 的连字符/大小写名统一）
 DIFFICULTY_BY_NAME = {_norm(k.split("-", 1)[1]): v for k, v in DIFFICULTY.items()}
 
@@ -101,21 +106,33 @@ class CtftinyPlatform(BasePlatform):
             }
 
     def _resolve_dir(self, rel: str) -> str:
-        """目录名大小写不敏感解析（实测 ezmaze→ezMaze 等不一致）。"""
+        """目录名解析：先精确，再大小写不敏感，最后规范化匹配（下划线/空格/大小写差异）。"""
         if rel in self._dir_cache:
             return self._dir_cache[rel]
-        ok = self._api(f"test -d {self.root}/{rel} && echo OK", timeout=60).get("stdout", "").strip()
+        full = f"{self.root}/{rel}"
+        ok = self._api(f"test -d {_shq(full)} && echo OK", timeout=60).get("stdout", "").strip()
         if ok == "OK":
             self._dir_cache[rel] = rel
             return rel
         parent = str(Path(rel).parent)
         base = Path(rel).name
         found = self._api(
-            f"find {self.root}/{parent} -maxdepth 1 -type d -iname '{base}' 2>/dev/null | head -1",
+            f"find {_shq(f'{self.root}/{parent}')} -maxdepth 1 -type d -iname {_shq(base)} 2>/dev/null | head -1",
             timeout=60).get("stdout", "").strip()
-        resolved = found.replace(self.root + "/", "") if found else rel
-        self._dir_cache[rel] = resolved
-        return resolved
+        if found:
+            resolved = found.replace(self.root + "/", "")
+            self._dir_cache[rel] = resolved
+            return resolved
+        # 规范化匹配（"rebug_2" ↔ "Rebug 2"、大小写）
+        nbase = _norm(base)
+        listing = self._api(f"ls -1 {_shq(f'{self.root}/{parent}')} 2>/dev/null", timeout=60).get("stdout", "")
+        for name in listing.splitlines():
+            if name.strip() and _norm(name.strip()) == nbase:
+                resolved = f"{parent}/{name.strip()}"
+                self._dir_cache[rel] = resolved
+                return resolved
+        self._dir_cache[rel] = rel
+        return rel
 
     def _detail(self, cid: str) -> dict[str, Any]:
         if cid not in self._details:
@@ -123,7 +140,7 @@ class CtftinyPlatform(BasePlatform):
             if meta is None:
                 return {}
             rel = self._resolve_dir(meta["path"])
-            out = self._api(f"cat {self.root}/{rel}/challenge.json 2>/dev/null")["stdout"]
+            out = self._api(f"cat {_shq(f'{self.root}/{rel}/challenge.json')} 2>/dev/null")["stdout"]
             try:
                 self._details[cid] = json.loads(out) if out.strip() else {}
             except json.JSONDecodeError:
@@ -175,7 +192,7 @@ class CtftinyPlatform(BasePlatform):
             safe_rel = Path(str(fname).lstrip("./"))
             if safe_rel.is_absolute() or ".." in safe_rel.parts:
                 continue  # 防路径穿越
-            cmd = f"base64 -w0 {self.root}/{rel}/{safe_rel} 2>/dev/null"
+            cmd = f"base64 -w0 {_shq(f'{self.root}/{rel}/{safe_rel}')} 2>/dev/null"
             res = self._api(cmd, timeout=600)
             b64 = (res.get("stdout") or "").strip()
             if not b64:
