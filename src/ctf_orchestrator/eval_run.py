@@ -54,16 +54,26 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", default="", help="模型路由配置 JSON（默认 L1 配置）")
     p.add_argument("--kali-url", default="http://10.174.153.128:5000")
     p.add_argument("--mock-url", default="http://127.0.0.1:7788")
+    p.add_argument("--bench-root", default="",
+                   help="ctftiny 题库根目录（默认 D:/ctf-agent/benchmarks/ctftiny；"
+                        "NYU 全量用 D:/ctf-agent/benchmarks/nyu-ctf-bench）")
+    p.add_argument("--bench-meta", default="",
+                   help="题库元数据文件名，逗号分隔（默认 ctftiny.json；NYU 用 test_dataset.json）")
     args = p.parse_args(argv)
 
     difficulties = [d.strip() for d in args.difficulty.split(",") if d.strip()] or None
     categories = [c.strip() for c in args.categories.split(",") if c.strip()] or None
 
     if args.platform == "ctftiny":
-        platform = CtftinyPlatform(kali_url=args.kali_url,
-                                   difficulties=difficulties,
-                                   categories=categories,
-                                   exclude=[c.strip() for c in args.exclude.split(",") if c.strip()] or None)
+        kwargs = dict(kali_url=args.kali_url,
+                      difficulties=difficulties,
+                      categories=categories,
+                      exclude=[c.strip() for c in args.exclude.split(",") if c.strip()] or None)
+        if args.bench_root:
+            kwargs["root"] = args.bench_root
+        if args.bench_meta:
+            kwargs["meta_files"] = tuple(m.strip() for m in args.bench_meta.split(",") if m.strip())
+        platform = CtftinyPlatform(**kwargs)
     elif args.platform == "dasctf2025":
         platform = DasctfEvalPlatform()
     else:

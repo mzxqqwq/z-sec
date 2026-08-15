@@ -47,15 +47,18 @@ DIFFICULTY: dict[str, str] = {
     "msc-weak_password": "easy", "msc-ezmaze": "easy", "msc-android_dropper": "easy",
 }
 
-CATEGORY_MAP = {"cry": "crypto", "for": "misc", "msc": "misc",
-                "pwn": "pwn", "rev": "rev", "web": "web"}
+CATEGORY_MAP = {"cry": "crypto", "for": "misc", "msc": "misc", "forensics": "misc",
+                "re": "rev", "pwn": "pwn", "rev": "rev", "web": "web"}
 
 # 仓库内 Windows 非法路径 → 本地净化目录（get_it? 的 ? 在 NTFS 不合法）
 PATH_OVERRIDES: dict[str, str] = {
     "ctftiny/pwn/get_it?": "ctftiny/pwn/get_it_q",
+    "test/2018/CSAW-Quals/pwn/get_it?": "test/2018/CSAW-Quals/pwn/get_it_q",
 }
 
 LOCAL_ROOT_DEFAULT = r"D:\ctf-agent\benchmarks\ctftiny"
+# NYU_CTF_Bench（CTFTiny 的全量上游：test 200 题 + development 57 题，2013-2023）
+NYU_ROOT_DEFAULT = r"D:\ctf-agent\benchmarks\nyu-ctf-bench"
 
 
 def _norm(s: str) -> str:
@@ -71,12 +74,14 @@ class CtftinyPlatform(BasePlatform):
 
     def __init__(self, kali_url: str = "http://10.174.153.128:5000",
                  root: str = LOCAL_ROOT_DEFAULT,
+                 meta_files: tuple[str, ...] = ("ctftiny.json",),
                  difficulties: Optional[list[str]] = None,
                  categories: Optional[list[str]] = None,
                  exclude: Optional[list[str]] = None,
                  max_files_mb: float = 20.0) -> None:
         self.kali_url = kali_url.rstrip("/")  # 保留：worker 运行时健康检查等仍用它
         self.root = Path(root)
+        self.meta_files = meta_files  # 元数据文件（ctftiny.json 或 test_dataset.json 等，可多个合并）
         self.difficulties = difficulties  # None = 全部
         self.categories = categories      # None = 全部
         self.exclude = set(exclude or [])
@@ -96,18 +101,22 @@ class CtftinyPlatform(BasePlatform):
         return self.root / rel
 
     def _load_meta(self) -> None:
-        data = json.loads((self.root / "ctftiny.json").read_text(encoding="utf-8"))
-        for key, entry in data.items():
-            raw_cat = (entry.get("category") or key.split("-")[0]).lower()
-            cat = {"cry": "crypto", "for": "misc", "msc": "misc", "re": "rev"}.get(raw_cat, raw_cat)
-            self._meta[key] = {
-                "cid": key,
-                "name": entry.get("challenge", key),
-                "cat": cat,
-                "path": entry.get("path", ""),
-                "event": entry.get("event", ""),
-                "year": entry.get("year", ""),
-            }
+        for meta_file in self.meta_files:
+            path = self.root / meta_file
+            if not path.exists():
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for key, entry in data.items():
+                raw_cat = (entry.get("category") or key.split("-")[0]).lower()
+                cat = CATEGORY_MAP.get(raw_cat, raw_cat)
+                self._meta[key] = {
+                    "cid": key,
+                    "name": entry.get("challenge", key),
+                    "cat": cat,
+                    "path": entry.get("path", ""),
+                    "event": entry.get("event", ""),
+                    "year": entry.get("year", ""),
+                }
 
     def _resolve_dir(self, rel: str) -> str:
         """目录名解析：先精确，再规范化匹配（下划线/空格/大小写/非法字符差异）。"""
