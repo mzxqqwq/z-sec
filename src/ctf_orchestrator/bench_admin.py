@@ -126,34 +126,157 @@ def list_benchmarks() -> list[dict[str, Any]]:
 _run_lock = threading.Lock()
 _run: dict[str, Any] = {
     "proc": None, "platform": None, "started_at": 0.0, "cmd": [], "status": "idle",
+    "run_id": None,
 }
+
+RUNS_DIR = BENCH_WS / "runs"
+RUNS_INDEX = BENCH_WS / "runs.json"
+
+
+def _load_index() -> list[dict[str, Any]]:
+    if not RUNS_INDEX.exists():
+        return []
+    try:
+        data = json.loads(RUNS_INDEX.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _save_index(records: list[dict[str, Any]]) -> None:
+    RUNS_INDEX.parent.mkdir(parents=True, exist_ok=True)
+    tmp = RUNS_INDEX.with_suffix(".tmp")
+    tmp.write_text(json.dumps(records, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(RUNS_INDEX)
+
+
+def _update_record(run_id: str, patch: dict[str, Any]) -> None:
+    records = _load_index()
+    for r in records:
+        if r.get("id") == run_id:
+            r.update(patch)
+            _save_index(records)
+            return
+
+
+def _archive_to(run_id: str) -> None:
+    """把工作区里上一个 run 的产物归档到 runs/<run_id>/（黑板/成绩单/worker 日志）。"""
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("state.json", "eval-result.json"):
+        p = BENCH_WS / name
+        if p.exists():
+            p.replace(run_dir / name)
+    logs_dst = run_dir / "logs"
+    ch_dir = BENCH_WS / "challenges"
+    if ch_dir.is_dir():
+        for cdir in ch_dir.iterdir():
+            if not cdir.is_dir():
+                continue
+            for log in cdir.glob("worker_*.log"):
+                dst = logs_dst / cdir.name
+                dst.mkdir(parents=True, exist_ok=True)
+                try:
+                    log.replace(dst / log.name)
+                except OSError:
+                    pass
+
+
+def _finalize(run_id: str, status: str, exit_code=None) -> None:
+    """结束态收尾：读当前工作区的成绩单写入记录，并把产物归入 run 目录。"""
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    result: dict[str, Any] = {}
+    src = BENCH_WS / "eval-result.json"
+    if src.exists():
+        try:
+            result = json.loads(src.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            result = {}
+        try:
+            src.replace(run_dir / "eval-result.json")
+        except OSError:
+            pass
+    # 当前黑板复制进 run 目录（历史查看用；下一 run 启动时会整体归档）
+    st = BENCH_WS / "state.json"
+    if st.exists():
+        try:
+            import shutil
+            shutil.copy2(st, run_dir / "state.json")
+        except OSError:
+            pass
+    patch: dict[str, Any] = {"status": status, "finished_at": time.time()}
+    # 防御：读不到成绩单时不覆盖已有的有效 result（double-finalize 保护）
+    if result:
+        patch["result"] = {"total": result.get("total", 0),
+                           "solved": result.get("solved", 0),
+                           "by_category": result.get("by_category", {}),
+                           "elapsed": result.get("elapsed", 0)}
+    if exit_code is not None:
+        patch["exit_code"] = exit_code
+    _update_record(run_id, patch)
 
 
 def _status_locked() -> dict[str, Any]:
     proc: Optional[subprocess.Popen] = _run.get("proc")
-    if proc is None:
-        return {"status": "idle", "platform": _run.get("platform"),
-                "elapsed": 0, "log_tail": ""}
-    running = proc.poll() is None
-    status = "running" if running else "done"
-    elapsed = time.time() - float(_run.get("started_at") or time.time())
-    if not running and proc.returncode != 0:
-        status = "failed"
-    return {"status": status, "platform": _run.get("platform"), "elapsed": round(elapsed, 1),
-            "pid": proc.pid, "exit_code": proc.returncode,
-            "log_tail": _log_tail()}
+    if proc is not None:
+        running = proc.poll() is None
+        status = "running" if running else "done"
+        if not running and proc.returncode != 0:
+            status = "failed"
+        # 只在进程刚结束的第一次调用时 finalize；随后清 run_id 防重复覆盖
+        if not running and _run.get("run_id"):
+            _finalize(_run["run_id"], status, proc.returncode)
+            _run["run_id"] = None
+        return {"status": status, "platform": _run.get("platform"),
+                "elapsed": round(time.time() - float(_run.get("started_at") or time.time()), 1),
+                "pid": proc.pid, "exit_code": proc.returncode,
+                "run_id": _run.get("run_id"), "log_tail": _log_tail()}
+    # 无内存进程：收养历史记录里"仍在运行"的跑分（看板重启后的韧性）
+    records = _load_index()
+    running_recs = [r for r in records if r.get("status") == "running"]
+    if running_recs:
+        rec = running_recs[-1]
+        pid = int(rec.get("pid") or 0)
+        alive = False
+        if pid:
+            try:
+                import psutil
+                alive = psutil.pid_exists(pid)
+            except Exception:
+                alive = False
+        if alive:
+            return {"status": "running", "platform": rec.get("bench_id"),
+                    "elapsed": round(time.time() - float(rec.get("started_at") or time.time()), 1),
+                    "pid": pid, "exit_code": None, "run_id": rec.get("id"),
+                    "log_tail": _log_tail(rec.get("id"))}
+        _finalize(rec.get("id", ""), "done" if _run_result_exists(rec.get("id", "")) else "failed")
+    return {"status": "idle", "platform": _run.get("platform"),
+            "elapsed": 0, "log_tail": "", "run_id": None}
 
 
-def _log_tail(lines: int = 40) -> str:
-    if not RUN_LOG.exists():
+def _run_result_exists(run_id: str) -> bool:
+    return (RUNS_DIR / run_id / "eval-result.json").exists() if run_id else False
+
+
+def _log_tail(lines: int = 40, run_id: str | None = None) -> str:
+    path = RUNS_DIR / run_id / "run.log" if run_id else RUN_LOG
+    if not path.exists():
         return ""
-    text = RUN_LOG.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8", errors="replace")
     return "\n".join(text.splitlines()[-lines:])
 
 
 def status() -> dict[str, Any]:
     with _run_lock:
         return _status_locked()
+
+
+def history() -> list[dict[str, Any]]:
+    """历史跑分（新→旧）。"""
+    with _run_lock:
+        _status_locked()  # 先收养/终态化
+        return sorted(_load_index(), key=lambda r: r.get("started_at") or 0, reverse=True)
 
 
 def start(bench_id: str, filters: dict[str, Any] | None = None) -> tuple[bool, str]:
@@ -176,13 +299,22 @@ def start(bench_id: str, filters: dict[str, Any] | None = None) -> tuple[bool, s
             cmd += ["--only", str(filters["only"])]
         if filters.get("exclude"):
             cmd += ["--exclude", str(filters["exclude"])]
-        # 干净跑分：清黑板（保留 challenges 日志目录）
+        # 干净跑分：把上一个 run 的产物归入它自己的目录（id 对号入座），再清当前黑板
         BENCH_WS.mkdir(parents=True, exist_ok=True)
+        run_id = time.strftime("%Y%m%d-%H%M%S")
+        prev = [r for r in _load_index() if r.get("status") == "running"]
+        if prev:
+            _archive_to(prev[-1]["id"])
+        else:
+            # 升级前的旧现场（无记录可归）→ legacy 目录，不丢失
+            _archive_to("legacy")
         for junk in ("state.json", "eval-result.json"):
             p = BENCH_WS / junk
             if p.exists():
                 p.unlink()
-        log_fh = open(RUN_LOG, "w", encoding="utf-8", errors="replace")
+        log_path = RUNS_DIR / run_id / "run.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_fh = open(log_path, "w", encoding="utf-8", errors="replace")
         try:
             proc = subprocess.Popen(
                 cmd, cwd=str(Path(r"D:\ctf-agent")),
@@ -193,14 +325,24 @@ def start(bench_id: str, filters: dict[str, Any] | None = None) -> tuple[bool, s
             log_fh.close()
             return False, f"启动失败: {e}"
         _run.update({"proc": proc, "platform": bench_id,
-                     "started_at": time.time(), "cmd": cmd})
-        return True, f"已启动 {d['name']} 跑分 (pid={proc.pid})"
+                     "started_at": time.time(), "cmd": cmd, "run_id": run_id})
+        records = _load_index()
+        records.append({"id": run_id, "bench_id": bench_id, "name": d["name"],
+                        "filters": filters, "cmd": cmd,
+                        "started_at": _run["started_at"], "status": "running",
+                        "pid": proc.pid, "finished_at": None, "exit_code": None,
+                        "result": None})
+        _save_index(records)
+        return True, f"已启动 {d['name']} 跑分 (run={run_id}, pid={proc.pid})"
 
 
 def stop() -> tuple[bool, str]:
     with _run_lock:
         proc: Optional[subprocess.Popen] = _run.get("proc")
         if proc is None or proc.poll() is not None:
+            if _run.get("run_id"):
+                _finalize(_run["run_id"], "stopped")
+                _run["run_id"] = None
             _run["proc"] = None
             return True, "无运行中的跑分"
         try:
@@ -208,5 +350,7 @@ def stop() -> tuple[bool, str]:
                            capture_output=True, timeout=30)
         except Exception as e:
             return False, f"停止失败: {e}"
-        _run["proc"] = None
+        if _run.get("run_id"):
+            _finalize(_run["run_id"], "stopped", proc.returncode)
+        _run.update({"proc": None, "run_id": None})
         return True, "已停止"

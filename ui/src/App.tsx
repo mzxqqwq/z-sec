@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import type { BenchInfo, BenchStatus, Board, ChallengeView, Mode, Summary } from "./api"
+import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, Mode, Summary } from "./api"
 import {
-  fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest, fetchKaliStatus,
+  fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest, fetchKaliStatus,
   fetchState, postConfirm, postHint, postVerify, startBench, stopBench,
 } from "./api"
 import FullTranscript from "./components/FullTranscript"
@@ -163,6 +163,8 @@ function BenchPage() {
   const [filters, setFilters] = useState({ difficulty: "", categories: "", only: "", exclude: "" })
   const [status, setStatus] = useState<BenchStatus>({ status: "idle", platform: null, elapsed: 0, log_tail: "" })
   const [challenges, setChallenges] = useState<ChallengeView[]>([])
+  const [history, setHistory] = useState<BenchRunInfo[]>([])
+  const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
 
@@ -177,26 +179,46 @@ function BenchPage() {
         const st = await fetchBenchStatus()
         if (!alive) return
         setStatus(st)
-        if (st.status === "running" || st.status === "done" || st.status === "failed") {
+        if (selectedRun === null && (st.status === "running" || st.status === "done" || st.status === "failed" || st.status === "stopped")) {
           setChallenges(await fetchState("bench"))
+        } else if (selectedRun !== null) {
+          setChallenges(await fetchState("bench", selectedRun))
         }
+      } catch { /* ignore */ }
+      try {
+        const h = await fetchBenchHistory()
+        if (alive) setHistory(h)
       } catch { /* ignore */ }
     }
     load()
     const t = setInterval(load, 5000)
     return () => { alive = false; clearInterval(t) }
-  }, [])
+  }, [selectedRun])
 
-  if (open) return <Detail cid={open} mode="bench" onBack={() => setOpen(null)} />
+  if (open) return <Detail cid={open} mode="bench" runId={selectedRun ?? undefined}
+    onBack={() => setOpen(null)} />
 
   const running = status.status === "running"
   const summary = computeSummary(challenges)
+  const fmtTime = (ts: number | null) => ts ? new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false }) : "-"
+  const RUN_STATUS: Record<string, string> = { running: "运行中", done: "已完成", failed: "失败", stopped: "已停止" }
 
   return (
     <>
       <Shell summary={summary} kali="?" />
       <div className="page">
         <Toast msg={toast.msg} kind={toast.kind} />
+
+        {selectedRun && (
+          <div className="banner-error" style={{ borderColor: "var(--border-bright)", color: "var(--stellar-bright)",
+            background: "rgba(125,146,232,.08)", display: "flex", alignItems: "center", gap: 10 }}>
+            <span>正在查看历史跑分 <b>{selectedRun}</b>（只读）</span>
+            <span className="spacer" style={{ flex: 1 }} />
+            <button className="btn btn-sm" onClick={() => { setSelectedRun(null); setOpen(null) }}>
+              返回当前跑分</button>
+          </div>
+        )}
+
         <div className="bench-grid">
           {benches.map((b) => (
             <div key={b.id}
@@ -221,59 +243,96 @@ function BenchPage() {
           ))}
         </div>
 
-        <div className="filter-row">
-          <label>难度</label>
-          <select value={filters.difficulty}
-            onChange={(e) => setFilters({ ...filters, difficulty: e.target.value })}>
-            <option value="">全部</option>
-            <option value="very_easy,easy">very_easy+easy</option>
-            <option value="easy">easy</option>
-            <option value="moderate">moderate</option>
-            <option value="hard">hard</option>
-          </select>
-          <label>题型</label>
-          <input className="input" placeholder="如 crypto,rev（空=全部）"
-            value={filters.categories}
-            onChange={(e) => setFilters({ ...filters, categories: e.target.value })} />
-          <label>只跑</label>
-          <input className="input" placeholder="cid，逗号分隔（可选）"
-            value={filters.only}
-            onChange={(e) => setFilters({ ...filters, only: e.target.value })} />
-          <label>排除</label>
-          <input className="input" placeholder="cid，逗号分隔（可选）"
-            value={filters.exclude}
-            onChange={(e) => setFilters({ ...filters, exclude: e.target.value })} />
-          <span className="spacer" />
-          <button className="btn btn-primary" disabled={!selected || running}
-            onClick={async () => {
-              const r = await startBench(selected, filters)
-              setToast({ msg: r.msg, kind: r.ok ? "ok" : "err" })
-            }}>
-            {running ? "跑分中…" : "开始跑分"}
-          </button>
-          <button className="btn btn-danger" disabled={!running}
-            onClick={async () => {
-              const r = await stopBench()
-              setToast({ msg: r.msg, kind: "ok" })
-            }}>停止</button>
-        </div>
+        {!selectedRun && (
+          <div className="filter-row">
+            <label>难度</label>
+            <select value={filters.difficulty}
+              onChange={(e) => setFilters({ ...filters, difficulty: e.target.value })}>
+              <option value="">全部</option>
+              <option value="very_easy,easy">very_easy+easy</option>
+              <option value="easy">easy</option>
+              <option value="moderate">moderate</option>
+              <option value="hard">hard</option>
+            </select>
+            <label>题型</label>
+            <input className="input" placeholder="如 crypto,rev（空=全部）"
+              value={filters.categories}
+              onChange={(e) => setFilters({ ...filters, categories: e.target.value })} />
+            <label>只跑</label>
+            <input className="input" placeholder="cid，逗号分隔（可选）"
+              value={filters.only}
+              onChange={(e) => setFilters({ ...filters, only: e.target.value })} />
+            <label>排除</label>
+            <input className="input" placeholder="cid，逗号分隔（可选）"
+              value={filters.exclude}
+              onChange={(e) => setFilters({ ...filters, exclude: e.target.value })} />
+            <span className="spacer" />
+            <button className="btn btn-primary" disabled={!selected || running}
+              onClick={async () => {
+                const r = await startBench(selected, filters)
+                setToast({ msg: r.msg, kind: r.ok ? "ok" : "err" })
+              }}>
+              {running ? "跑分中…" : "开始跑分"}
+            </button>
+            <button className="btn btn-danger" disabled={!running}
+              onClick={async () => {
+                const r = await stopBench()
+                setToast({ msg: r.msg, kind: "ok" })
+              }}>停止</button>
+          </div>
+        )}
 
-        {status.status !== "idle" && (
+        {!selectedRun && status.status !== "idle" && (
           <div className="run-panel">
             <div className="run-head">
               <span className={`run-badge`}>{
                 status.status === "running" ? "运行中" :
-                status.status === "done" ? "已完成" : status.status === "failed" ? "失败" : "空闲"
+                status.status === "done" ? "已完成" : status.status === "failed" ? "失败" :
+                status.status === "stopped" ? "已停止" : "空闲"
               }</span>
               <span className="muted">题库 <b style={{ color: "var(--text)" }}>{status.platform}</b></span>
               <span className="muted">已运行 {fmtElapsed(status.elapsed)}</span>
+              {status.run_id && <span className="muted">run {status.run_id}</span>}
               {status.pid && <span className="muted">pid {status.pid}</span>}
-              {status.exit_code !== undefined && status.exit_code !== null && status.status !== "running" &&
-                <span className="muted">exit {status.exit_code}</span>}
               <span className="spacer" style={{ flex: 1 }} />
               <span className="muted">成绩单：{summary.solved}/{summary.total} · ¥{summary.cost.toFixed(4)}</span>
             </div>
             {status.log_tail && <pre className="run-log">{status.log_tail}</pre>}
+          </div>
+        )}
+
+        {history.length > 0 && (
+          <div className="panel-card">
+            <div className="panel-card-head">
+              <h3 className="panel-card-title">历史跑分（持久化，重启不丢）</h3>
+            </div>
+            <table className="table">
+              <thead>
+                <tr><th>时间</th><th>题库</th><th>状态</th><th>成绩</th><th>耗时</th><th>过滤</th><th></th></tr>
+              </thead>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={h.id} className={`row-click ${selectedRun === h.id ? "selected" : ""}`}
+                    style={selectedRun === h.id ? { background: "rgba(125,146,232,.12)" } : undefined}
+                    onClick={() => { setSelectedRun(selectedRun === h.id ? null : h.id); setOpen(null) }}>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtTime(h.started_at)}</td>
+                    <td>{h.name}</td>
+                    <td>
+                      <span className={`star-dot ${h.status === "running" ? "solving" : h.status === "done" ? "solved" : "new"}`} />
+                      {" "}{RUN_STATUS[h.status] ?? h.status}
+                    </td>
+                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}</td>
+                    <td>{h.result?.elapsed ? fmtElapsed(h.result.elapsed) : "-"}</td>
+                    <td className="muted" style={{ fontSize: 11 }}>
+                      {Object.entries(h.filters || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}
+                    </td>
+                    <td><button className="btn btn-sm"
+                      onClick={(e) => { e.stopPropagation(); setSelectedRun(selectedRun === h.id ? null : h.id); setOpen(null) }}>
+                      {selectedRun === h.id ? "收起" : "查看"}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -296,7 +355,7 @@ function BenchPage() {
 }
 
 // ---------- 题目详情（主/bench 共用） ----------
-function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => void }) {
+function Detail({ cid, mode, runId, onBack }: { cid: string; mode: Mode; runId?: string; onBack: () => void }) {
   const [digest, setDigest] = useState("加载中…")
   const [board, setBoard] = useState<Board>({})
   const [hint, setHint] = useState("")
@@ -309,13 +368,13 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
     const load = async () => {
       try {
         const [d, b] = await Promise.all([
-          fetchDigest(cid, mode), fetchBoard(cid, mode),
+          fetchDigest(cid, mode, runId), fetchBoard(cid, mode, runId),
         ])
         if (!alive) return
         setDigest(d); setBoard(b)
       } catch { /* ignore */ }
       try {
-        const list = await fetchState(mode)
+        const list = await fetchState(mode, runId)
         if (!alive) return
         setChallenge(list.find((c) => c.cid === cid) ?? null)
       } catch { /* ignore */ }
@@ -323,20 +382,22 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
     load()
     timerRef.current = window.setInterval(load, 15000)
     return () => { alive = false; window.clearInterval(timerRef.current) }
-  }, [cid, mode])
+  }, [cid, mode, runId])
 
   const sendHint = async () => {
-    if (!hint.trim()) return
+    if (!hint.trim() || readonly) return
     const ok = await postHint(cid, hint, mode)
     setToast(ok ? { msg: "提示已写入，编排器下一轮注入", kind: "ok" } : { msg: "写入失败", kind: "err" })
     setHint("")
   }
   const confirm = async (flag: string) => {
+    if (readonly) return
     const ok = await postConfirm(cid, flag, mode)
     setToast(ok ? { msg: "已提交复核，编排器将代交", kind: "ok" } : { msg: "提交失败", kind: "err" })
   }
 
   const stuck = challenge?.status === "needs_hint"
+  const readonly = mode === "bench" && !!runId
 
   return (
     <>
@@ -361,16 +422,16 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
               <div className={`digest-lead ${digest === "摘要生成失败" ? "digest-muted" : ""}`}>{digest}</div>
             </GlassCard>
             <GlassCard title="全程记录（指令 / 思考 / 回复 / 工具）">
-              <FullTranscript cid={cid} mode={mode} />
+              <FullTranscript cid={cid} mode={mode} runId={runId} />
             </GlassCard>
           </div>
 
           <div className="detail-side">
             <GlassCard title="人工纠偏（hint）">
-              <textarea value={hint} onChange={(e) => setHint(e.target.value)} rows={3}
-                placeholder="一次一个方向、指向具体线索，如：看 PNG 文件尾部的 base64" />
+              <textarea value={hint} onChange={(e) => setHint(e.target.value)} rows={3} disabled={readonly}
+                placeholder={readonly ? "历史跑分只读，不可写提示" : "一次一个方向、指向具体线索，如：看 PNG 文件尾部的 base64"} />
               <button className="btn btn-primary" style={{ marginTop: 8, width: "100%" }}
-                onClick={sendHint} disabled={!hint.trim()}>写入提示</button>
+                onClick={sendHint} disabled={!hint.trim() || readonly}>写入提示</button>
               <p className="muted" style={{ marginTop: 8, fontSize: 11.5 }}>
                 编排器下一轮派工自动注入；hint 是"意图级"输入，会被转译成技术指引。</p>
             </GlassCard>
@@ -397,7 +458,7 @@ function Detail({ cid, mode, onBack }: { cid: string; mode: Mode; onBack: () => 
             </GlassCard>
 
             <GlassCard title="提交复核" actions={
-              <button className="btn btn-sm" onClick={async () => {
+              <button className="btn btn-sm" disabled={readonly} onClick={async () => {
                 await postVerify(cid, mode)
                 setToast({ msg: "已切换复核模式", kind: "ok" })
               }}>

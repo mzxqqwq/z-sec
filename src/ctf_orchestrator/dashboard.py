@@ -386,9 +386,37 @@ def _bench_ws() -> Path:
     return bench_admin.BENCH_WS
 
 
+def _bench_state_file(run_id: str | None) -> Path:
+    if run_id:
+        return bench_admin.RUNS_DIR / run_id / "state.json"
+    return _bench_ws() / "state.json"
+
+
+def _bench_log_dir(cid: str, run_id: str | None) -> Path:
+    if run_id:
+        return bench_admin.RUNS_DIR / run_id / "logs" / cid
+    return _bench_ws() / "challenges" / cid
+
+
+def _bench_state_raw(run_id: str | None) -> dict:
+    f = _bench_state_file(run_id)
+    if not f.exists():
+        return {"challenges": []}
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return {"challenges": []}
+
+
+@app.get("/api/bench/history")
+def api_bench_history():
+    return jsonify({"runs": bench_admin.history()})
+
+
 @app.get("/api/bench/state")
 def api_bench_state():
-    data = state(_bench_ws())
+    run_id = (request.args.get("run") or "").strip() or None
+    data = _bench_state_raw(run_id)
     return jsonify({"challenges": [_challenge_view_ws(c, _bench_ws())
                                   for c in data.get("challenges", [])]})
 
@@ -422,21 +450,31 @@ def _challenge_view_ws(c: dict, ws: Path) -> dict:
 @app.get("/api/bench/digest/<cid>")
 def api_bench_digest(cid: str):
     import digest
-    return jsonify({"cid": cid, "digest": digest.digest(_bench_ws(), cid)})
+    run_id = (request.args.get("run") or "").strip() or None
+    return jsonify({"cid": cid,
+                    "digest": digest.digest(_bench_ws(), cid, _bench_log_dir(cid, run_id))})
 
 
 @app.get("/api/bench/logs/<cid>")
 def api_bench_logs(cid: str):
     tail = int(request.args.get("tail", 200))
     tail = max(1, min(tail, 500))
-    return jsonify({"cid": cid, "text": worker_log_tail(cid, tail, line_cap=2000, ws=_bench_ws())})
+    run_id = (request.args.get("run") or "").strip() or None
+    log_dir = _bench_log_dir(cid, run_id)
+    logs = sorted(log_dir.glob("worker_*.log"),
+                  key=lambda p: p.stat().st_mtime, reverse=True) if log_dir.is_dir() else []
+    text = ""
+    if logs:
+        raw = logs[0].read_text(encoding="utf-8", errors="replace")
+        text = "\n".join(line[:2000] for line in raw.splitlines()[-tail:])
+    return jsonify({"cid": cid, "text": text})
 
 
 @app.get("/api/bench/transcript/<cid>")
 def api_bench_transcript(cid: str):
     import tracing
-    wd = _bench_ws() / "challenges" / cid
-    logs = tracing.worker_logs(wd)
+    run_id = (request.args.get("run") or "").strip() or None
+    logs = tracing.worker_logs(_bench_log_dir(cid, run_id))
     wi = max(0, min(int(request.args.get("worker", 0) or 0), len(logs) - 1)) if logs else 0
     limit = max(100, min(int(request.args.get("limit", 600) or 600), 2000))
     entries = tracing.parse_transcript(logs[wi], limit) if logs else []
@@ -447,7 +485,8 @@ def api_bench_transcript(cid: str):
 
 @app.get("/api/bench/board/<cid>")
 def api_bench_board(cid: str):
-    data = state(_bench_ws())
+    run_id = (request.args.get("run") or "").strip() or None
+    data = _bench_state_raw(run_id)
     for c in data.get("challenges", []):
         if c.get("cid") == cid:
             return jsonify({"cid": cid, "board": c.get("board") or {}})
@@ -490,7 +529,12 @@ def api_bench_verify(cid: str):
 
 @app.get("/api/bench/usage/<cid>")
 def api_bench_usage(cid: str):
-    u = _usage_cached(cid, _bench_ws())
+    import tracing
+    run_id = (request.args.get("run") or "").strip() or None
+    if run_id:
+        u = tracing.summarize_challenge(_bench_log_dir(cid, run_id))
+    else:
+        u = _usage_cached(cid, _bench_ws())
     return jsonify({"cid": cid, "tokens": u["totalTokens"], "cost": round(u["cost"], 4)})
 
 

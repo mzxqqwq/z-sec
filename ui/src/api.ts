@@ -39,20 +39,34 @@ export interface BenchInfo {
 }
 
 export interface BenchStatus {
-  status: "idle" | "running" | "done" | "failed"
+  status: "idle" | "running" | "done" | "failed" | "stopped"
   platform: string | null
   elapsed: number
   pid?: number
   exit_code?: number
+  run_id?: string
   log_tail: string
+}
+
+export interface BenchRunInfo {
+  id: string
+  bench_id: string
+  name: string
+  filters: Record<string, string>
+  started_at: number
+  finished_at: number | null
+  status: string
+  pid: number
+  result: { total: number; solved: number; by_category: Record<string, { solved: number; total: number }>; elapsed: number } | null
 }
 
 export type Mode = "main" | "bench"
 
 const base = (mode: Mode) => (mode === "bench" ? "/api/bench" : "/api")
+const qrun = (runId?: string) => (runId ? `?run=${encodeURIComponent(runId)}` : "")
 
-export async function fetchState(mode: Mode = "main"): Promise<ChallengeView[]> {
-  const r = await fetch(`${base(mode)}/state`)
+export async function fetchState(mode: Mode = "main", runId?: string): Promise<ChallengeView[]> {
+  const r = await fetch(`${base(mode)}/state${mode === "bench" ? qrun(runId) : ""}`)
   if (!r.ok) throw new Error(`state ${r.status}`)
   const data = await r.json()
   return data.challenges ?? []
@@ -69,22 +83,22 @@ export async function fetchKaliStatus(): Promise<"ok" | "bad"> {
   }
 }
 
-export async function fetchDigest(cid: string, mode: Mode = "main"): Promise<string> {
-  const r = await fetch(`${base(mode)}/digest/${cid}`)
+export async function fetchDigest(cid: string, mode: Mode = "main", runId?: string): Promise<string> {
+  const r = await fetch(`${base(mode)}/digest/${cid}${mode === "bench" ? qrun(runId) : ""}`)
   if (!r.ok) return "摘要获取失败"
   const data = await r.json()
   return data.digest ?? "摘要获取失败"
 }
 
-export async function fetchLogs(cid: string, tail = 300, mode: Mode = "main"): Promise<string> {
-  const r = await fetch(`${base(mode)}/logs/${cid}?tail=${tail}`)
+export async function fetchLogs(cid: string, tail = 300, mode: Mode = "main", runId?: string): Promise<string> {
+  const r = await fetch(`${base(mode)}/logs/${cid}?tail=${tail}${mode === "bench" && runId ? `&run=${encodeURIComponent(runId)}` : ""}`)
   if (!r.ok) return ""
   const data = await r.json()
   return data.text ?? ""
 }
 
-export async function fetchBoard(cid: string, mode: Mode = "main"): Promise<Board> {
-  const r = await fetch(`${base(mode)}/board/${cid}`)
+export async function fetchBoard(cid: string, mode: Mode = "main", runId?: string): Promise<Board> {
+  const r = await fetch(`${base(mode)}/board/${cid}${mode === "bench" ? qrun(runId) : ""}`)
   if (!r.ok) return {}
   const data = await r.json()
   return data.board ?? {}
@@ -106,8 +120,8 @@ export interface Transcript {
   entries: TranscriptEntry[]
 }
 
-export async function fetchTranscript(cid: string, worker = 0, limit = 600, mode: Mode = "main"): Promise<Transcript> {
-  const r = await fetch(`${base(mode)}/transcript/${cid}?worker=${worker}&limit=${limit}`)
+export async function fetchTranscript(cid: string, worker = 0, limit = 600, mode: Mode = "main", runId?: string): Promise<Transcript> {
+  const r = await fetch(`${base(mode)}/transcript/${cid}?worker=${worker}&limit=${limit}${mode === "bench" && runId ? `&run=${encodeURIComponent(runId)}` : ""}`)
   if (!r.ok) return { cid, workers: 0, worker: 0, worker_files: [], entries: [] }
   return await r.json()
 }
@@ -161,4 +175,11 @@ export async function startBench(id: string, filters: Record<string, string>): P
 export async function stopBench(): Promise<{ ok: boolean; msg: string }> {
   const r = await fetch("/api/bench/stop", { method: "POST" })
   return await r.json()
+}
+
+export async function fetchBenchHistory(): Promise<BenchRunInfo[]> {
+  const r = await fetch("/api/bench/history")
+  if (!r.ok) return []
+  const d = await r.json()
+  return d.runs ?? []
 }

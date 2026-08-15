@@ -87,14 +87,14 @@ def extract_activity(log_text: str, max_tail: int = 40000) -> str:
     return "\n".join(parts)[:max_tail]
 
 
-def digest(workspace: Path, cid: str) -> str:
-    """返回 cid 的 3 行中文摘要（带 60s 缓存）。"""
-    key = f"{workspace}#{cid}"
+def digest(workspace: Path, cid: str, log_dir: Path | None = None) -> str:
+    """返回 cid 的 3 行中文摘要（带 60s 缓存）。log_dir 可指向归档的 worker 日志目录。"""
+    key = f"{workspace}#{cid}#{log_dir or ''}"
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < CACHE_SECONDS:
         return hit[1]
 
-    wd = workspace / "challenges" / cid
+    wd = log_dir or (workspace / "challenges" / cid)
     text = ""
     if wd.exists():
         logs = sorted(wd.glob("worker_*.log"),
