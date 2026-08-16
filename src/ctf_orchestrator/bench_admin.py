@@ -212,9 +212,49 @@ def _finalize(run_id: str, status: str, exit_code=None) -> None:
                            "solved": result.get("solved", 0),
                            "by_category": result.get("by_category", {}),
                            "elapsed": result.get("elapsed", 0)}
+    else:
+        # 停止/强杀的跑分没有成绩单 → 从黑板快照算「中断时部分成绩」+ 耗时
+        partial = _partial_result(run_id)
+        if partial:
+            patch["result"] = partial
     if exit_code is not None:
         patch["exit_code"] = exit_code
     _update_record(run_id, patch)
+
+
+def _partial_result(run_id: str) -> dict[str, Any] | None:
+    """从黑板快照（state.json）算中断时的部分成绩；耗时取记录起止时间。"""
+    st = BENCH_WS / "state.json"
+    if not st.exists():
+        return None
+    try:
+        data = json.loads(st.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    chs = data.get("challenges") or []
+    if isinstance(chs, dict):
+        chs = list(chs.values())
+    if not chs:
+        return None
+    by_cat: dict[str, dict[str, int]] = {}
+    solved = 0
+    for c in chs:
+        if not isinstance(c, dict):
+            continue
+        cat = str((c.get("raw") or {}).get("category") or "?")
+        by_cat.setdefault(cat, {"solved": 0, "total": 0})
+        by_cat[cat]["total"] += 1
+        if c.get("status") == "solved":
+            solved += 1
+            by_cat[cat]["solved"] += 1
+    rec = next((r for r in _load_index() if r.get("id") == run_id), None)
+    elapsed = 0.0
+    if rec:
+        started = float(rec.get("started_at") or 0)
+        finished = float(rec.get("finished_at") or time.time())
+        elapsed = max(0.0, finished - started)
+    return {"total": len(chs), "solved": solved, "by_category": by_cat,
+            "elapsed": round(elapsed, 1), "partial": True}
 
 
 def _status_locked() -> dict[str, Any]:
@@ -452,5 +492,9 @@ def stop() -> tuple[bool, str]:
             return False, f"停止失败: {e}"
         for r in [x for x in _load_index() if x.get("status") == "running"]:
             _finalize(r["id"], "stopped")
+        try:
+            (BENCH_WS / "run.pid").unlink(missing_ok=True)
+        except OSError:
+            pass
         _run.update({"proc": None, "run_id": None})
         return True, "已停止"

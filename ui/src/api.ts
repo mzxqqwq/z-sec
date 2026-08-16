@@ -60,7 +60,7 @@ export interface BenchRunInfo {
   pid: number
   snapshot: boolean
   resumed_from?: string
-  result: { total: number; solved: number; by_category: Record<string, { solved: number; total: number }>; elapsed: number } | null
+  result: { total: number; solved: number; by_category: Record<string, { solved: number; total: number }>; elapsed: number; partial?: boolean } | null
 }
 
 export type Mode = "main" | "bench"

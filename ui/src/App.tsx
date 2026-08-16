@@ -401,7 +401,9 @@ function BenchPage() {
                       <span className={`star-dot ${h.status === "running" ? "solving" : h.status === "done" ? "solved" : "new"}`} />
                       {" "}{RUN_STATUS[h.status] ?? h.status}
                     </td>
-                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}</td>
+                    <td>{h.result ? `${h.result.solved}/${h.result.total}` : "-"}
+                      {h.result?.partial ? <span className="muted" style={{ fontSize: 10.5 }}>（中断时）</span> : null}
+                    </td>
                     <td>{h.result?.elapsed ? fmtElapsed(h.result.elapsed) : "-"}</td>
                     <td className="muted" style={{ fontSize: 11 }}>
                       {Object.entries(h.filters || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}
