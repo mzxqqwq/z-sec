@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bench-meta", default="",
                    help="题库元数据文件名，逗号分隔（默认 ctftiny.json；NYU 用 test_dataset.json）")
     p.add_argument("--revive", action="store_true",
-                   help="靶机已停的服务题用 Kali podman 本地复活（需先跑 pull-service-images.sh）")
+                   help="dead 服务题用 Kali podman 起容器当靶机（需先拉镜像，见 docs/服务题容器运行.md）")
     args = p.parse_args(argv)
 
     difficulties = [d.strip() for d in args.difficulty.split(",") if d.strip()] or None

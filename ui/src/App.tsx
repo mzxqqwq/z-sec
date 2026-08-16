@@ -97,8 +97,8 @@ function StarGrid({ challenges, onOpen }: {
             <span className="star-card-title">{c.name || c.cid}</span>
             {c.connection && (
               <span className="cat-badge cat-misc"
-                title={c.revived ? `远程服务 ${c.connection}（本地已复活）` : `远程服务 ${c.connection}`}>
-                {c.revived ? "靶机·复活" : "靶机"}
+                title={c.revived ? `远程服务 ${c.connection}（容器已起）` : `远程服务 ${c.connection}`}>
+                {c.revived ? "靶机·容器" : "靶机"}
               </span>
             )}
             <CategoryBadge category={c.category} />
@@ -506,8 +506,8 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
           {challenge && <CategoryBadge category={challenge.category} />}
           {challenge?.connection && (
             <span className="cat-badge cat-misc"
-              title={challenge.revived ? `远程服务 ${challenge.connection}（本地已复活）` : `远程服务 ${challenge.connection}`}>
-              {challenge.revived ? "靶机·复活" : "靶机"} {challenge.connection}
+              title={challenge.revived ? `远程服务 ${challenge.connection}（容器已起）` : `远程服务 ${challenge.connection}`}>
+              {challenge.revived ? "靶机·容器" : "靶机"} {challenge.connection}
             </span>
           )}
           <span className="muted" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
