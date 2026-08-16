@@ -110,7 +110,7 @@ DIFFICULTY_BY_NAME = {_norm(k.split("-", 1)[1]): v for k, v in DIFFICULTY.items(
 class CtftinyPlatform(BasePlatform):
     name = "ctftiny"
 
-    def __init__(self, kali_url: str = "http://10.174.153.128:5000",
+    def __init__(self, kali_url: str = "",
                  root: str = LOCAL_ROOT_DEFAULT,
                  meta_files: tuple[str, ...] = ("ctftiny.json",),
                  difficulties: Optional[list[str]] = None,
@@ -118,7 +118,8 @@ class CtftinyPlatform(BasePlatform):
                  exclude: Optional[list[str]] = None,
                  max_files_mb: float = 20.0,
                  revive: bool = True) -> None:
-        self.kali_url = kali_url.rstrip("/")  # 保留：worker 运行时健康检查等仍用它
+        from workers import kali_api_url
+        self.kali_url = (kali_url or kali_api_url()).rstrip("/")  # 保留：worker 运行时健康检查等仍用它
         self.root = Path(root)
         self.meta_files = meta_files  # 元数据文件（ctftiny.json 或 test_dataset.json 等，可多个合并）
         self.difficulties = difficulties  # None = 全部

@@ -24,6 +24,10 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def main() -> int:
+    # Kali REST 地址：环境变量 KALI_API_URL 可覆盖（队友机器 IP 不同）
+    from workers import kali_api_url
+    KALI = kali_api_url()
+
     # 1. DeepSeek key
     key_file = ROOT / "secrets" / "deepseek.key"
     check("DeepSeek key", key_file.exists() and key_file.read_text(encoding="ascii").strip().startswith("sk-"))
@@ -34,14 +38,14 @@ def main() -> int:
 
     # 3. Kali API
     try:
-        r = requests.get("http://10.174.153.128:5000/health", timeout=8)
+        r = requests.get(f"{KALI}/health", timeout=8)
         check("Kali API", r.status_code == 200 and "healthy" in r.text, r.text[:60])
     except Exception as e:
         check("Kali API", False, str(e))
 
     # 4. Kali 关键工具
     try:
-        r = requests.post("http://10.174.153.128:5000/api/command",
+        r = requests.post(f"{KALI}/api/command",
                           json={"command": "python3 -c 'import pwn,z3,angr,sympy; print(\"ok\")' 2>&1 | tail -1"},
                           timeout=30)
         check("Kali CTF 工具链", "ok" in r.json().get("stdout", ""))
@@ -50,7 +54,7 @@ def main() -> int:
 
     # 4b. SageMath（podman 容器包装 /usr/local/bin/sage；worker 直敲 sage xxx.sage）
     try:
-        r = requests.post("http://10.174.153.128:5000/api/command",
+        r = requests.post(f"{KALI}/api/command",
                           json={"command": "mkdir -p /root/ctf/preflight && "
                                            "printf 'print(factor(15))\\n' > /root/ctf/preflight/t.sage && "
                                            "cd /root/ctf/preflight && sage t.sage 2>&1 | tail -1"},
@@ -62,7 +66,7 @@ def main() -> int:
 
     # 4c. pwndbg
     try:
-        r = requests.post("http://10.174.153.128:5000/api/command",
+        r = requests.post(f"{KALI}/api/command",
                           json={"command": "gdb -q -batch -ex 'quit' 2>&1 | grep -ci pwndbg"},
                           timeout=60)
         check("Kali pwndbg", int((r.json().get("stdout", "") or "0").strip() or 0) > 0)
@@ -71,7 +75,7 @@ def main() -> int:
 
     # 4d. podman（SageMath 包装 + benchmark 服务题复活依赖）
     try:
-        r = requests.post("http://10.174.153.128:5000/api/command",
+        r = requests.post(f"{KALI}/api/command",
                           json={"command": "podman --version 2>&1 | head -1"},
                           timeout=60)
         check("Kali podman", "podman version" in r.json().get("stdout", ""))

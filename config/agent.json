@@ -16,7 +16,7 @@
       "thinking": "medium"
     },
     "digest": {
-      "model": "deepseek-chat"
+      "model": "deepseek-v4-pro"
     }
   },
   "runtime": {
@@ -27,10 +27,9 @@
   },
   "providers": [
     {
+      "base_url": "https://api.deepseek.com",
       "id": "deepseek",
       "label": "DeepSeek",
-      "base_url": "https://api.deepseek.com",
-      "api_key_env": "DEEPSEEK_API_KEY",
       "models": [
         "deepseek-v4-pro",
         "deepseek-v4-flash",
@@ -38,21 +37,29 @@
       ]
     },
     {
+      "base_url": "https://api.openai.com/v1",
       "id": "openai",
       "label": "OpenAI",
-      "base_url": "https://api.openai.com/v1",
-      "api_key_env": "OPENAI_API_KEY",
       "models": [
         "gpt-4o"
       ]
     },
     {
+      "base_url": "https://api.anthropic.com",
       "id": "anthropic",
       "label": "Anthropic",
-      "base_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY",
       "models": [
         "claude-sonnet-4-20250514"
+      ]
+    },
+    {
+      "id": "newapi",
+      "label": "中转站/NewAPI 网关",
+      "base_url": "http://139.196.205.198:3000",
+      "models": [
+        "gpt-5.6-sol",
+        "gpt-5.6-luna",
+        "claude-fable-5"
       ]
     }
   ]

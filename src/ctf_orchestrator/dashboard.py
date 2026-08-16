@@ -255,9 +255,10 @@ def api_summary():
 def api_kali_status():
     """Kali 健康（SSH 通道 ping + REST /health 双检）。"""
     import requests as _req
+    import workers
     ok = False
     try:
-        r = _req.get("http://10.174.153.128:5000/health", timeout=4)
+        r = _req.get(f"{workers.kali_api_url()}/health", timeout=4)
         ok = r.status_code == 200 and "healthy" in r.text
     except Exception:
         ok = False

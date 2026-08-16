@@ -84,9 +84,12 @@ def _port_pairs(ports: list[str]) -> list[tuple[int, int]]:
 class ServiceReviver:
     """挑战 → podman 容器。有状态（记录本 run 起过的容器，close 时统一清理）。"""
 
-    def __init__(self, kali_api: str = "http://10.174.153.128:5000",
+    def __init__(self, kali_api: str = "",
                  manifest_path: Path = MANIFEST_PATH,
                  enabled: bool = True) -> None:
+        if not kali_api:
+            from workers import kali_api_url
+            kali_api = kali_api_url()
         self.kali_api = kali_api.rstrip("/")
         self.enabled = enabled
         self._index: dict[str, dict[str, Any]] = {}

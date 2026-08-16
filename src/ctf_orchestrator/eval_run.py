@@ -56,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-rounds", type=int, default=3)
     p.add_argument("--max-attempts", type=int, default=2)
     p.add_argument("--config", default="", help="模型路由配置 JSON（默认 L1 配置）")
-    p.add_argument("--kali-url", default="http://10.174.153.128:5000")
+    p.add_argument("--kali-url", default="",
+                   help="Kali REST 地址（默认环境变量 KALI_API_URL，再退内置默认）")
     p.add_argument("--mock-url", default="http://127.0.0.1:7788")
     p.add_argument("--bench-root", default="",
                    help="ctftiny 题库根目录（默认 D:/ctf-agent/benchmarks/ctftiny；"
@@ -99,10 +100,12 @@ def main(argv: list[str] | None = None) -> int:
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
     # 健康闸门：Kali 不可达就拒绝开跑（防止 1 小时评测白跑）
-    if args.platform in ("ctftiny",) and args.kali_url:
+    if args.platform in ("ctftiny",):
         import requests as _req
+        from workers import kali_api_url
+        gate_url = args.kali_url or kali_api_url()
         try:
-            h = _req.get(f"{args.kali_url}/health", timeout=8)
+            h = _req.get(f"{gate_url}/health", timeout=8)
             if h.status_code != 200 or "healthy" not in h.text:
                 print(f"Kali 健康检查失败: HTTP {h.status_code}")
                 return 2

@@ -134,7 +134,7 @@ def _worker_env() -> dict[str, str]:
         if key_file.exists():
             env["DEEPSEEK_API_KEY"] = key_file.read_text(encoding="utf-8").strip()
     env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
-    env.setdefault("KALI_API_URL", "http://10.174.153.128:5000")
+    env.setdefault("KALI_API_URL", KALI_API_URL_DEFAULT)
     return env
 
 
@@ -212,8 +212,18 @@ def cleanup_orphans(pattern: str = "cli.js") -> int:
     return killed
 
 
+# ---- Kali REST 地址（健康闸门/评测探测用；工具调用已走 SSH）----
+# 队友机器 IP 不同：设置环境变量 KALI_API_URL 覆盖（如 http://192.168.1.10:5000）
+KALI_API_URL_DEFAULT = "http://10.174.153.128:5000"
+
+
+def kali_api_url() -> str:
+    import os
+    return os.environ.get("KALI_API_URL", "").strip() or KALI_API_URL_DEFAULT
+
+
 def kali_exec(command: str, timeout: int = 300) -> dict[str, Any]:
-    resp = requests.post("http://10.174.153.128:5000/api/command",
+    resp = requests.post(f"{kali_api_url()}/api/command",
                          json={"command": command}, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
