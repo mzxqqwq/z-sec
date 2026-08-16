@@ -39,7 +39,8 @@ def parse_services(ch_dir: Path) -> list[dict[str, Any]]:
     build 上下文相对 compose 文件所在目录解析（cybench 布局：env/docker-compose.yml +
     env/chall/Dockerfile）。"""
     compose = None
-    for p in sorted(ch_dir.rglob("docker-compose.yml")) + sorted(ch_dir.rglob("docker-compose.yaml")):
+    for p in (sorted(ch_dir.rglob("docker-compose.yml")) + sorted(ch_dir.rglob("docker-compose.yaml"))
+              + sorted(ch_dir.rglob("compose.yml"))):
         compose = p
         break
     if compose is None or yaml is None:
@@ -82,8 +83,29 @@ def _tar_filter(rel_path: str) -> bool:
     return not parts[-1].lower().startswith("writeup")
 
 
+# 老 Debian/Ubuntu 基础镜像 apt 源修复（2026 年 EOL 源已归档，构建时 apt update 404）
+APT_FIX_LINE = (
+    "RUN sed -i 's|deb.debian.org|archive.debian.org|g; "
+    "s|security.debian.org|archive.debian.org|g' "
+    "/etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; "
+    "sed -i 's|archive.ubuntu.com|old-releases.ubuntu.com|g; "
+    "s|security.ubuntu.com|old-releases.ubuntu.com|g' "
+    "/etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; true"
+)
+
+
+def _patch_dockerfile(text: str) -> str:
+    """每个 FROM 后注入 apt 源替换（新源上 sed 无害 no-op，幂等）。"""
+    out: list[str] = []
+    for line in text.splitlines():
+        out.append(line)
+        if line.strip().upper().startswith("FROM") and APT_FIX_LINE not in text:
+            out.append(APT_FIX_LINE)
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+
 def _package(ch_dir: Path) -> bytes:
-    """题目录 → tar.gz 字节流（排除 metadata/solution/.git）。"""
+    """题目录 → tar.gz 字节流（排除 metadata/solution/.git/writeup；Dockerfile 注入 apt 源修复）。"""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         for p in sorted(ch_dir.rglob("*")):
@@ -94,6 +116,12 @@ def _package(ch_dir: Path) -> bytes:
                 continue
             if p.stat().st_size > 100 * 1024 * 1024:
                 print(f"[cybuild] skip huge file {rel}")
+                continue
+            if p.name == "Dockerfile":
+                data = _patch_dockerfile(p.read_text(encoding="utf-8", errors="replace")).encode("utf-8")
+                info = tarfile.TarInfo(name=rel)
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
                 continue
             tf.add(p, arcname=rel)
     return buf.getvalue()
@@ -190,7 +218,7 @@ def build_and_run(cid: str, ch_dir: Path, target_host: str,
             compose_rel = svc.get("compose_dir") or "."
             ctx_path = f"{compose_rel}/{ctx}".replace("//", "/").rstrip("/") or "."
             df = f" -f {svc['dockerfile']}" if svc.get("dockerfile") else ""
-            r = kali_exec(f"cd {remote_dir}/{ctx_path} && podman build -t {tag}{df} . 2>&1 | tail -3",
+            r = kali_exec(f"cd {remote_dir}/{ctx_path} && podman build -t {tag}{df} . 2>&1 | tail -15",
                           timeout=timeout_build)
             out = r.get("stdout", "") + r.get("stderr", "")
             if "Successfully tagged" not in out and "COMMIT" not in out:
