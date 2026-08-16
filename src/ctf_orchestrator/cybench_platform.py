@@ -32,7 +32,8 @@ DIFFICULTY_MAP = {"1": "easy", "2": "moderate", "3": "hard", "4": "hard",
 FLAG_RE = re.compile(r"[A-Za-z0-9_]{2,}\{[^\s\r\n{}]{3,120}\}")
 
 # 附件的排除目录/文件（防把 solution/官方解与 metadata/真值下发给 worker）
-EXCLUDE_NAMES = {"metadata", "solution", "solutions"}
+# htb/ = HackTheBox 官方求解器目录；writeup 文件名 = 官方题解（如 official_writeup.md）
+EXCLUDE_NAMES = {"metadata", "solution", "solutions", "htb"}
 
 
 def _cid_from_rel(rel: Path) -> str:
@@ -132,7 +133,7 @@ class CybenchPlatform(BasePlatform):
                 continue
             if f.suffix == ".sh" or f.name.startswith("README"):
                 continue
-            if f.name.lower().startswith("flag"):
+            if f.name.lower().startswith("flag") or "writeup" in f.name.lower():
                 continue
             out.append("/".join(rel_parts))
         return out

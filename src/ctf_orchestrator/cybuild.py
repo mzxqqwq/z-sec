@@ -29,7 +29,8 @@ except ImportError:
 
 from workers import kali_exec  # noqa: E402  (同目录模块)
 
-EXCLUDE_DIRS = {"metadata", "solution", "solutions", ".git"}
+# htb/ 是 HackTheBox 官方求解器目录（solver.py 等），不是题目素材 → 不下 Kali
+EXCLUDE_DIRS = {"metadata", "solution", "solutions", ".git", "htb"}
 BUILD_BASE = "/tmp/cybench-builds"  # 临时构建上下文（kali 用户可写；镜像落 /data 的 podman 存储）
 
 
@@ -75,12 +76,20 @@ def parse_services(ch_dir: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _tar_filter(rel_path: str) -> bool:
-    """打包时排除真值/无关目录（metadata/solution/.git/writeup）。"""
+def _tar_filter(rel_path: str, allowed_prefixes: set[str]) -> bool:
+    """排除真值/无关目录（metadata/solution/.git/writeup），但构建上下文目录放行
+    （如 frog-waf 的 build context 就在 metadata/challenge 里）。"""
     parts = rel_path.replace("\\", "/").split("/")
-    if any(p in EXCLUDE_DIRS for p in parts):
+    if "writeup" in parts[-1].lower():
         return False
-    return not parts[-1].lower().startswith("writeup")
+    for p in parts:
+        if p in EXCLUDE_DIRS:
+            # 在任一放行的构建上下文前缀内 → 放行
+            for prefix in allowed_prefixes:
+                if rel_path == prefix or rel_path.startswith(prefix + "/"):
+                    return True
+            return False
+    return True
 
 
 # 老 Debian/Ubuntu 基础镜像 apt 源修复（2026 年 EOL 源已归档，构建时 apt update 404）
@@ -97,30 +106,79 @@ APT_FIX_LINE = (
 EOL_BASE_RE = re.compile(
     r"ubuntu:(1[468]\.04|20\.04)|"
     r"debian:(9|10|stretch|buster)|"
-    r"python:[0-9.]+-slim-(stretch|buster)|python:(2|3)\.(7|8|9)-(stretch|buster)",
+    r"python:[0-9.]+-slim-(stretch|buster)|python:(2|3)\.(7|8|9)-(stretch|buster)|"
+    r"maven:3\.8\.5-openjdk-11",  # maven 老镜像基于 debian buster
     re.I)
 
 
+# openjdk 官方镜像已从 Docker Hub 下架（2024-2025），换 eclipse-temurin 等价物
+OPENJDK_FIX = [
+    ("openjdk:11-slim", "eclipse-temurin:11-jre"),
+    ("openjdk:11-jre-slim", "eclipse-temurin:11-jre"),
+    ("openjdk:11", "eclipse-temurin:11"),
+    ("openjdk:11-jdk", "eclipse-temurin:11"),
+    ("openjdk:8", "eclipse-temurin:8"),
+    ("openjdk:8-jdk", "eclipse-temurin:8"),
+    ("openjdk:8-jdk-alpine", "eclipse-temurin:8-jdk-alpine"),
+    ("openjdk:17", "eclipse-temurin:17"),
+    ("openjdk:17-jdk", "eclipse-temurin:17"),
+]
+
+
 def _patch_dockerfile(text: str) -> str:
-    """仅对 EOL 基础镜像的 FROM 后注入 apt 源替换（幂等）。"""
+    """FROM/RUN 修补（幂等）：
+    ① EOL 基础镜像注入 apt 源替换 ② openjdk 下架镜像换 temurin
+    ③ adduser/addgroup 冲突不再中断构建（如 temurin 镜像已占用 gid/uid 1000）。"""
     out: list[str] = []
     for line in text.splitlines():
-        out.append(line)
-        if line.strip().upper().startswith("FROM") and EOL_BASE_RE.search(line) \
-                and APT_FIX_LINE not in text:
-            out.append(APT_FIX_LINE)
+        upper = line.strip().upper()
+        if upper.startswith("FROM"):
+            for old, new in OPENJDK_FIX:
+                if re.search(rf"FROM\s+{re.escape(old)}(\s|$)", line, re.I):
+                    line = re.sub(rf"{re.escape(old)}", new, line, count=1, flags=re.I)
+                    break
+            out.append(line)
+            if EOL_BASE_RE.search(line) and APT_FIX_LINE not in text:
+                out.append(APT_FIX_LINE)
+        else:
+            if (upper.startswith("RUN") and re.search(r"\badd(user|group)\b", line)
+                    and "|| true" not in line):
+                line = line.rstrip() + " || true"
+            # 老发行版源码行（buster/stretch，如 pickle-jail 的 amd64.list）改 archive.debian.org
+            if re.search(r"\b(buster|stretch)\b", line) and "debian.org" in line:
+                line = (line.replace("deb.debian.org", "archive.debian.org")
+                            .replace("security.debian.org", "archive.debian.org"))
+            out.append(line)
     return "\n".join(out) + ("\n" if text.endswith("\n") else "")
 
 
+def _norm_rel(p: str) -> str:
+    """'./metadata/challenge' → 'metadata/challenge'；'metadata/env/.' → 'metadata/env'。"""
+    p = p.strip().replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    while p.endswith("/."):
+        p = p[:-2]
+    return p.rstrip("/")
+
+
 def _package(ch_dir: Path) -> bytes:
-    """题目录 → tar.gz 字节流（排除 metadata/solution/.git/writeup；Dockerfile 注入 apt 源修复）。"""
+    """题目录 → tar.gz 字节流（排除真值/无关文件；Dockerfile 注入 EOL apt 源修复；
+    构建上下文目录放行——即使位于 metadata/ 下）。"""
+    services = parse_services(ch_dir)
+    allowed: set[str] = set()
+    for s in services:
+        compose_rel = _norm_rel(s.get("compose_dir") or ".")
+        ctx = _norm_rel(s.get("build_ctx") or ".")
+        p = f"{compose_rel}/{ctx}" if compose_rel != "." and ctx else (ctx or ".")
+        allowed.add(_norm_rel(p))
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         for p in sorted(ch_dir.rglob("*")):
             if not p.is_file():
                 continue
             rel = p.relative_to(ch_dir).as_posix()
-            if not _tar_filter(rel):
+            if not _tar_filter(rel, allowed):
                 continue
             if p.stat().st_size > 100 * 1024 * 1024:
                 print(f"[cybuild] skip huge file {rel}")
@@ -131,7 +189,12 @@ def _package(ch_dir: Path) -> bytes:
                 info.size = len(data)
                 tf.addfile(info, io.BytesIO(data))
                 continue
-            tf.add(p, arcname=rel)
+            # Windows 无 Unix 执行位；统一 0755，避免容器里 socat EXEC:./xxx、./run.sh 因
+            # 缺少 +x 静默失败（服务起了但子进程死 → 探测无响应，QuickScan/Delulu 类）。
+            info = tf.gettarinfo(str(p), arcname=rel)
+            info.mode = 0o755
+            with p.open("rb") as fh:
+                tf.addfile(info, fh)
     return buf.getvalue()
 
 
