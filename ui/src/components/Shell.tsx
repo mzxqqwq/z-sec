@@ -30,7 +30,7 @@ export default function Shell({ summary, kali }: { summary: Summary; kali: "ok" 
       <div className="shell-brand">
         <span className="shell-logo">⚑</span>
         <span className="shell-name">z-sec</span>
-        <span className="shell-sub">星图 · AI 夺旗驾驶舱</span>
+        <span className="shell-sub">AI 夺旗 Dashboard</span>
       </div>
       <div className="shell-right">
         <span className={`shell-stat${cls}`}

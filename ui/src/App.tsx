@@ -75,7 +75,7 @@ function StarGrid({ challenges, onOpen }: {
       ))}
       {challenges.length === 0 && (
         <div className="empty" style={{ gridColumn: "1 / -1" }}>
-          <div className="empty-star">✦</div>星图尚未点亮——等待编排器拉题
+          <div className="empty-star">✦</div>等待编排器拉题（启动编排器后题目自动出现在这里）
         </div>
       )}
     </div>
@@ -504,7 +504,7 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
       <Toast msg={toast.msg} kind={toast.kind} />
       <div className="page">
         <div className="panel-card" style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
-          <button className="btn btn-sm" onClick={onBack}>← {mode === "bench" ? "Benchmark" : "星图"}</button>
+          <button className="btn btn-sm" onClick={onBack}>← {mode === "bench" ? "Benchmark" : "比赛"}</button>
           <span className="panel-card-title" style={{ fontSize: 16 }}>{challenge?.name || cid}</span>
           {challenge && <StarBadge status={challenge.status} />}
           {challenge && <CategoryBadge category={challenge.category} />}
@@ -593,7 +593,7 @@ export default function App() {
         <div className="side-group">作战</div>
         <ul className="side-nav">
           <li><button className={nav === "main" ? "active" : ""} onClick={() => setNav("main")}>
-            <span className="nav-icon">✦</span>星图（比赛）</button></li>
+            <span className="nav-icon">✦</span>比赛看板</button></li>
           <li><button className={nav === "bench" ? "active" : ""} onClick={() => setNav("bench")}>
             <span className="nav-icon">◈</span>Benchmark 跑分</button></li>
           <li><button className={nav === "config" ? "active" : ""} onClick={() => setNav("config")}>

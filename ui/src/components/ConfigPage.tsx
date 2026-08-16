@@ -111,10 +111,8 @@ export default function ConfigPage({ toast }: {
         <div className="hero-grid" style={{ gridTemplateColumns: "1fr" }}>
           <div className="stat-hero">
             <div className="hero-label"><span className="hero-icon">⚙</span>统一配置</div>
-            <div className="hero-value" style={{ fontSize: 22 }}>LLM 角色 · Providers · 密钥</div>
-            <div className="hero-foot">
-              写入 config/agent.json 与 config/secrets.json（secrets 不上传 GitHub）· 保存后新跑分生效
-            </div>
+            <div className="hero-value" style={{ fontSize: 22 }}>模型 · 密钥 · 运行时</div>
+            <div className="hero-foot">保存后新跑分生效，重启不丢</div>
           </div>
         </div>
 
@@ -227,16 +225,10 @@ export default function ConfigPage({ toast }: {
               onChange={(e) => setCfg({ ...cfg, runtime: { ...cfg.runtime, max_parallel_challenges: Number(e.target.value) || 3 } })} />
             <span className="cfg-hint" style={{ margin: 0 }}>同时开打的题目数（受本机性能/API 限流约束）</span>
           </div>
-          {(["planning_enabled", "supervisor_enabled", "kb_enabled"] as const).map((k) => (
-            <div key={k} className="cfg-row">
-              <label>{k}</label>
-              <button className={`btn btn-sm ${cfg.runtime[k] ? "btn-success" : ""}`}
-                onClick={() => setCfg({ ...cfg, runtime: { ...cfg.runtime, [k]: !cfg.runtime[k] } })}>
-                {cfg.runtime[k] ? "开启" : "关闭"}
-              </button>
-            </div>
-          ))}
-          <p className="cfg-hint">改动对下次启动的跑分/编排器生效（看板进程内的 digest 立即生效）。</p>
+          <p className="cfg-hint">
+            高级开关（planning / supervisor / kb）保留在 config/agent.json 的 runtime 段，
+            日常无需调整——见 INSTALL.md。
+          </p>
         </GlassCard>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
