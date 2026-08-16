@@ -12,14 +12,12 @@ import StatCard from "./components/StatCard"
 import StarBadge, { CategoryBadge } from "./components/StarBadge"
 import Toast from "./components/Toast"
 import ConfigPage from "./components/ConfigPage"
+import Shell from "./components/Shell"
 
 const STATUS_TEXT: Record<string, string> = {
   new: "未触及", queued: "排队中", solving: "解题中",
   solved: "已夺取", needs_hint: "待提示", dead: "已放弃",
 }
-
-// 初赛（线上资格赛）结束时间：2026-08-21 17:00（赛程 14:00–17:00）
-const RACE_DEADLINE = new Date("2026-08-21T17:00:00+08:00")
 
 function fmtElapsed(s: number): string {
   if (s < 60) return `${s}s`
@@ -41,45 +39,6 @@ function computeSummary(list: ChallengeView[]): Summary {
     s.tokens += c.tokens ?? 0
   }
   return s
-}
-
-function Shell({ summary, kali }: { summary: Summary; kali: "ok" | "bad" | "?" }) {
-  const [countdown, setCountdown] = useState("")
-  useEffect(() => {
-    const tick = () => {
-      const diff = Math.max(0, RACE_DEADLINE.getTime() - Date.now())
-      const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000)
-      setCountdown(diff > 0
-        ? `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
-        : "已结束")
-    }
-    tick()
-    const t = setInterval(tick, 1000)
-    return () => clearInterval(t)
-  }, [])
-  const cls = (() => {
-    const diff = RACE_DEADLINE.getTime() - Date.now()
-    if (diff <= 0) return ""
-    if (diff < 600000) return " danger"
-    if (diff < 3600000) return " warn"
-    return ""
-  })()
-  return (
-    <header className="shell">
-      <div className="shell-brand">
-        <span className="shell-logo">⚑</span>
-        <span className="shell-name">z-sec</span>
-        <span className="shell-sub">星图 · AI 夺旗驾驶舱</span>
-      </div>
-      <div className="shell-right">
-        <span className={`shell-stat${cls}`}
-          title={`初赛结束时间 ${RACE_DEADLINE.toLocaleString("zh-CN")}`}>⏱ 初赛 <b>{countdown}</b></span>
-        <span className="shell-stat">⚑ <b>{summary.total ? `${summary.solved}/${summary.total}` : "-/-"}</b></span>
-        <span className="shell-stat">¥ <b>{summary.cost.toFixed(4)}</b></span>
-        <span className="shell-stat">Kali <span className={`dot ${kali === "ok" ? "ok" : kali === "bad" ? "bad" : ""}`} /></span>
-      </div>
-    </header>
-  )
 }
 
 // ---------- 挑战星卡（主/bench 共用） ----------

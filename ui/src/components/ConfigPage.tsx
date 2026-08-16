@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { fetchConfig, saveConfig } from "../api"
 import type { AgentConfig, ProviderInfo } from "../api"
 import GlassCard from "./GlassCard"
+import Shell from "./Shell"
 
 const THINKING_LABEL: Record<string, string> = { low: "低", medium: "中", high: "高" }
 const ROLE_LABEL: Record<string, string> = {
@@ -10,6 +11,9 @@ const ROLE_LABEL: Record<string, string> = {
   planner: "Planner（解题思路）",
   observer: "Supervisor（看板维护）",
   digest: "digest（日志摘要）",
+}
+const ROLE_ICON: Record<string, string> = {
+  strong: "✦", weak: "·", planner: "◈", observer: "☽", digest: "❖",
 }
 const newProvider = (): ProviderInfo => ({ id: "", label: "", base_url: "", models: [] })
 
@@ -26,7 +30,14 @@ export default function ConfigPage({ toast }: {
   }
   useEffect(() => { void load() }, [])
 
-  if (!cfg) return <p className="muted">加载配置中…</p>
+  if (!cfg) {
+    return (
+      <>
+        <Shell summary={{ solved: 0, solving: 0, needs_hint: 0, total: 0, cost: 0, tokens: 0 }} kali="?" />
+        <div className="page"><p className="empty"><span className="empty-star">⚙</span><br />加载配置中…</p></div>
+      </>
+    )
+  }
 
   const patchProvider = (idx: number, field: keyof ProviderInfo, value: string) => {
     const providers = cfg.providers.map((p, i) =>
@@ -95,131 +106,144 @@ export default function ConfigPage({ toast }: {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "6px 0 14px" }}>
-        <span className="panel-card-title" style={{ fontSize: 16 }}>⚙ 统一配置</span>
-        <span className="muted" style={{ fontSize: 12 }}>
-          写入 config/agent.json 与 config/secrets.json（secrets 不上传 GitHub）
-        </span>
-      </div>
-
-      <GlassCard title="Providers（API 中转站/自定义端点都加在这里）">
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <span className="muted" style={{ fontSize: 12 }}>从预设添加：</span>
-          {cfg.presets.map((p) => (
-            <button key={p.id} className="btn btn-sm" onClick={() => addPreset(p)}>
-              ＋ {p.name}</button>
-          ))}
+      <Shell summary={{ solved: 0, solving: 0, needs_hint: 0, total: 0, cost: 0, tokens: 0 }} kali="?" />
+      <div className="page">
+        <div className="hero-grid" style={{ gridTemplateColumns: "1fr" }}>
+          <div className="stat-hero">
+            <div className="hero-label"><span className="hero-icon">⚙</span>统一配置</div>
+            <div className="hero-value" style={{ fontSize: 22 }}>LLM 角色 · Providers · 密钥</div>
+            <div className="hero-foot">
+              写入 config/agent.json 与 config/secrets.json（secrets 不上传 GitHub）· 保存后新跑分生效
+            </div>
+          </div>
         </div>
-        {cfg.providers.map((p, idx) => (
-          <div key={idx} className="pending-row" style={{ marginBottom: 10, alignItems: "flex-start" }}>
-            <span style={{ width: 90 }}>
-              <input placeholder="id" value={p.id} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
-                onChange={(e) => patchProvider(idx, "id", e.target.value.toLowerCase())} />
-            </span>
-            <span style={{ width: 110 }}>
-              <input placeholder="label" value={p.label} style={{ width: "100%" }}
-                onChange={(e) => patchProvider(idx, "label", e.target.value)} />
-            </span>
-            <span style={{ flex: 1 }}>
-              <input placeholder="https://你的中转站/v1" value={p.base_url} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
-                onChange={(e) => patchProvider(idx, "base_url", e.target.value)} />
-            </span>
-            <span style={{ flex: 1.4 }}>
-              <input placeholder="模型 id，逗号分隔（如 gpt-5.2, claude-sonnet-4.6）"
-                value={p.models.join(", ")} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
-                onChange={(e) => patchProvider(idx, "models", e.target.value)} />
-            </span>
-            <button className="btn btn-sm" onClick={() => applyRoles(p.models)}
-              title="按该 provider 的模型给五个角色分配合适模型（reasoning 模型给 strong）">应用到角色</button>
-            <button className="btn btn-sm" onClick={() => removeProvider(idx)} title="删除该 provider">✕</button>
-          </div>
-        ))}
-        <button className="btn btn-sm" onClick={addProvider}>＋ 新增空白 Provider</button>
-        <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>
-          自定义中转站请用<b>自定义 id</b>（如 myrelay），保存时自动合并进 pi 模型注册表
-          （%USERPROFILE%\.pi\agent\models.json），其模型立即可在下方「角色模型」里选择。
-          deepseek/openai/anthropic 等内置 id 由 pi 运行时自带元数据管理，不会写入注册表。
-        </p>
-      </GlassCard>
 
-      <GlassCard title="API Key（provider 密钥）">
-        {cfg.providers.filter((p) => p.id).map((p) => (
-          <div key={p.id} className="pending-row" style={{ marginBottom: 10 }}>
-            <span style={{ width: 140 }}><b>{p.label || p.id}</b><br />
-              <span className="muted" style={{ fontSize: 11 }}>{p.base_url || "(未设 url)"}</span></span>
-            <span style={{ flex: 1 }}>
-              <input type="password"
-                placeholder={cfg.keys[p.id] ? "已设置（留空保持不变）" : "未设置"}
-                value={keys[p.id] ?? ""}
-                onChange={(e) => setKeys({ ...keys, [p.id]: e.target.value })}
-                style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
-            </span>
-            <span className={`dot ${cfg.keys[p.id] ? "ok" : "bad"}`}
-              title={cfg.keys[p.id] ? "已配置" : "未配置"} />
+        <GlassCard title="Providers（API 中转站 / 自定义端点）" actions={
+          <div style={{ display: "flex", gap: 6 }}>
+            {cfg.presets.map((p) => (
+              <button key={p.id} className="btn btn-sm" onClick={() => addPreset(p)}>＋ {p.name}</button>
+            ))}
+            <button className="btn btn-sm" onClick={addProvider}>＋ 空白 Provider</button>
           </div>
-        ))}
-        {cfg.providers.filter((p) => p.id).length === 0 && (
-          <p className="muted">先在上面添加至少一个带 id 的 provider。</p>
-        )}
-        <p className="muted" style={{ fontSize: 11 }}>
-          保存后立即写入 secrets.json 并注入当前进程环境；新开 worker/评测进程自动继承。
-        </p>
-      </GlassCard>
+        }>
+          {cfg.providers.map((p, idx) => (
+            <div key={idx} className="cfg-provider">
+              <div className="cfg-provider-head">
+                <span className="star-dot" style={{ background: "var(--stellar)" }} />
+                <span className="cfg-name">{p.label || p.id || "（未命名）"}</span>
+                <span className="cfg-url" title={p.base_url}>{p.base_url || "未设 base_url"}</span>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button className="btn btn-sm" onClick={() => applyRoles(p.models)}
+                    title="按该 provider 的模型给五个角色分配合适模型">应用到角色</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => removeProvider(idx)}>删除</button>
+                </div>
+              </div>
+              <div className="cfg-row">
+                <label>id</label>
+                <input className="input" style={{ width: 150, fontFamily: "var(--font-mono)" }}
+                  placeholder="myrelay" value={p.id}
+                  onChange={(e) => patchProvider(idx, "id", e.target.value.toLowerCase())} />
+                <label style={{ width: "auto" }}>名称</label>
+                <input className="input" style={{ width: 150 }}
+                  placeholder="我的中转站" value={p.label}
+                  onChange={(e) => patchProvider(idx, "label", e.target.value)} />
+                <label style={{ width: "auto" }}>base_url</label>
+                <input className="input" style={{ flex: 1, fontFamily: "var(--font-mono)" }}
+                  placeholder="https://你的中转站/v1" value={p.base_url}
+                  onChange={(e) => patchProvider(idx, "base_url", e.target.value)} />
+              </div>
+              <div className="cfg-row" style={{ marginBottom: 0 }}>
+                <label>模型 id（逗号分隔）</label>
+                <input className="input" style={{ flex: 1, fontFamily: "var(--font-mono)" }}
+                  placeholder="gpt-5.6-sol, claude-sonnet-4.6, deepseek-v4-pro"
+                  value={p.models.join(", ")}
+                  onChange={(e) => patchProvider(idx, "models", e.target.value)} />
+              </div>
+            </div>
+          ))}
+          <p className="cfg-hint">
+            自定义中转站请用<b>自定义 id</b>（如 myrelay）：保存时自动合并进 pi 模型注册表
+            （%USERPROFILE%\.pi\agent\models.json），其模型立即可在下方「角色模型」里选择；
+            deepseek/openai/anthropic 等内置 id 由 pi 运行时自带元数据管理，不会写入注册表。
+          </p>
+        </GlassCard>
 
-      <GlassCard title="角色模型（strong/weak/planner/observer/digest）">
-        {Object.entries(ROLE_LABEL).map(([role, label]) => {
-          const v = cfg.llm[role] ?? { model: "" }
-          return (
-            <div key={role} className="pending-row" style={{ marginBottom: 10 }}>
-              <span style={{ width: 200 }}>{label}</span>
-              <select value={v.model} style={{ flex: 1, marginRight: 8 }}
-                onChange={(e) => patchLlm(role, "model", e.target.value)}>
-                <option value="" disabled>选择模型…</option>
-                {cfg.providers.filter((p) => p.id).map((p) => (
-                  <optgroup key={p.id} label={`${p.label || p.id}（${p.base_url}）`}>
-                    {p.models.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-              {(role === "strong" || role === "weak" || role === "observer") && (
-                <select value={v.thinking ?? "medium"} style={{ width: 90 }}
-                  onChange={(e) => patchLlm(role, "thinking", e.target.value)}>
-                  {Object.entries(THINKING_LABEL).map(([t, l]) => (
-                    <option key={t} value={t}>思考·{l}</option>
+        <GlassCard title="API Key（provider 密钥）">
+          <div className="cfg-grid">
+            {cfg.providers.filter((p) => p.id).map((p) => (
+              <div key={p.id} className="cfg-key">
+                <div className="cfg-key-head">
+                  <span className={`dot ${cfg.keys[p.id] ? "ok" : "bad"}`} />
+                  <span className="cfg-name">{p.label || p.id}</span>
+                </div>
+                <input className="input" type="password" style={{ fontFamily: "var(--font-mono)" }}
+                  placeholder={cfg.keys[p.id] ? "已设置（留空保持不变）" : "未设置"}
+                  value={keys[p.id] ?? ""}
+                  onChange={(e) => setKeys({ ...keys, [p.id]: e.target.value })} />
+                <div className="cfg-hint">{p.base_url || "（未设 url）"}</div>
+              </div>
+            ))}
+            {cfg.providers.filter((p) => p.id).length === 0 && (
+              <p className="muted">先在上方添加至少一个带 id 的 provider。</p>
+            )}
+          </div>
+          <p className="cfg-hint">保存后立即写入 secrets.json 并注入当前进程环境；新开 worker/评测进程自动继承。</p>
+        </GlassCard>
+
+        <GlassCard title="角色模型（strong / weak / planner / observer / digest）">
+          {Object.entries(ROLE_LABEL).map(([role, label]) => {
+            const v = cfg.llm[role] ?? { model: "" }
+            return (
+              <div key={role} className="cfg-row">
+                <label><span style={{ marginRight: 6, color: "var(--stellar-bright)" }}>{ROLE_ICON[role]}</span>{label}</label>
+                <select className="input" style={{ flex: 1 }}
+                  value={v.model} onChange={(e) => patchLlm(role, "model", e.target.value)}>
+                  <option value="" disabled>选择模型…</option>
+                  {cfg.providers.filter((p) => p.id).map((p) => (
+                    <optgroup key={p.id} label={`${p.label || p.id}（${p.base_url || "未设 url"}）`}>
+                      {p.models.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </optgroup>
                   ))}
                 </select>
-              )}
-            </div>
-          )
-        })}
-      </GlassCard>
+                {(role === "strong" || role === "weak" || role === "observer") && (
+                  <select className="input" style={{ width: 100 }}
+                    value={v.thinking ?? "medium"}
+                    onChange={(e) => patchLlm(role, "thinking", e.target.value)}>
+                    {Object.entries(THINKING_LABEL).map(([t, l]) => (
+                      <option key={t} value={t}>思考·{l}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )
+          })}
+        </GlassCard>
 
-      <GlassCard title="运行时开关">
-        <div className="pending-row" style={{ marginBottom: 10 }}>
-          <span style={{ width: 200 }}>并发题数上限</span>
-          <input type="number" min={1} max={8}
-            value={cfg.runtime.max_parallel_challenges}
-            onChange={(e) => setCfg({ ...cfg, runtime: { ...cfg.runtime, max_parallel_challenges: Number(e.target.value) || 3 } })}
-            style={{ width: 90 }} />
-        </div>
-        {(["planning_enabled", "supervisor_enabled", "kb_enabled"] as const).map((k) => (
-          <div key={k} className="pending-row" style={{ marginBottom: 10 }}>
-            <span style={{ width: 200 }}>{k}</span>
-            <button className="btn btn-sm"
-              onClick={() => setCfg({ ...cfg, runtime: { ...cfg.runtime, [k]: !cfg.runtime[k] } })}>
-              {cfg.runtime[k] ? "开" : "关"}
-            </button>
+        <GlassCard title="运行时开关">
+          <div className="cfg-row">
+            <label>并发题数上限</label>
+            <input className="input" type="number" min={1} max={8} style={{ width: 100 }}
+              value={cfg.runtime.max_parallel_challenges}
+              onChange={(e) => setCfg({ ...cfg, runtime: { ...cfg.runtime, max_parallel_challenges: Number(e.target.value) || 3 } })} />
+            <span className="cfg-hint" style={{ margin: 0 }}>同时开打的题目数（受本机性能/API 限流约束）</span>
           </div>
-        ))}
-        <p className="muted" style={{ fontSize: 11 }}>
-          改动对下次启动的跑分/编排器生效（看板进程内的 digest 会立即生效）。
-        </p>
-      </GlassCard>
+          {(["planning_enabled", "supervisor_enabled", "kb_enabled"] as const).map((k) => (
+            <div key={k} className="cfg-row">
+              <label>{k}</label>
+              <button className={`btn btn-sm ${cfg.runtime[k] ? "btn-success" : ""}`}
+                onClick={() => setCfg({ ...cfg, runtime: { ...cfg.runtime, [k]: !cfg.runtime[k] } })}>
+                {cfg.runtime[k] ? "开启" : "关闭"}
+              </button>
+            </div>
+          ))}
+          <p className="cfg-hint">改动对下次启动的跑分/编排器生效（看板进程内的 digest 立即生效）。</p>
+        </GlassCard>
 
-      <div style={{ marginTop: 12 }}>
-        <button className="btn" disabled={saving} onClick={save}>
-          {saving ? "保存中…" : "保存配置"}
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button className="btn btn-primary" disabled={saving} onClick={save}>
+            {saving ? "保存中…" : "保存配置"}</button>
+          <span className="muted">改动只落本地 config/ 目录，重启看板不丢</span>
+        </div>
       </div>
     </>
   )
