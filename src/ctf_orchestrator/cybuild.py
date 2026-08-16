@@ -157,7 +157,8 @@ def build_and_run(cid: str, ch_dir: Path, target_host: str,
     if not cport:
         return False, None, "无法确定容器端口（target_host 与 compose ports 都没有）"
 
-    safe_cid = re.sub(r"[^a-zA-Z0-9_-]", "-", cid)[:48]
+    safe_cid = re.sub(r"[^a-zA-Z0-9_-]", "-", cid)
+    safe_cid = safe_cid.strip("_-.")[:48].rstrip("_-.")  # 防截断尾部留下分隔符（podman tag 非法）
     remote_dir = f"{BUILD_BASE}/{safe_cid}"
 
     # 1. 打包 + 上传 + 解包（目录 777：SFTP 以 kali 用户写，build/run 以 root 执行）
@@ -210,13 +211,13 @@ def build_and_run(cid: str, ch_dir: Path, target_host: str,
             r = kali_exec(cmd + tags[svc["name"]], timeout=300)
             if not r.get("success") or "Error" in r.get("stderr", ""):
                 raise RuntimeError(f"run {svc['name']} 失败: {r.get('stderr', '')[:120]}")
-        # 4. 探测
+        # 4. 探测（服务冷启动可能慢，Java 类 60s 兜底）
         from eval_platform import probe_host
-        deadline = time.time() + 30
+        deadline = time.time() + 60
         while time.time() < deadline:
             if probe_host("127.0.0.1", hp):
                 break
-            time.sleep(2)
+            time.sleep(3)
         else:
             raise RuntimeError("服务探测无响应")
     except Exception as e:
