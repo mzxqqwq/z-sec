@@ -101,6 +101,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Kali 不可达，评测中止: {e}")
             return 2
         print("Kali 健康检查通过")
+        # 完整性：清空 Kali 工作区残留（上一 run 的 worker 可能留下题库树/真值泄漏，
+        # 本 run 的 worker 用 find 就能翻到——2026-08-16 审计事故）。
+        # 只清 /root/ctf 下的挑战目录；showdown 等容器服务由 revival 启动时重建。
+        try:
+            from workers import kali_exec
+            out = kali_exec("rm -rf /root/ctf/* 2>/dev/null; echo cleaned", timeout=60)
+            if "cleaned" not in str(out.get("stdout", "")):
+                print(f"[integrity] Kali workspace clean: {out.get('stdout') or out.get('stderr')}")
+            else:
+                print("[integrity] Kali workspace cleaned (/root/ctf/*)")
+        except Exception as e:
+            print(f"[integrity] Kali workspace clean failed（评测继续，注意审计）: {e}")
 
     model_config = L1_CONFIG
     if args.config and Path(args.config).exists():

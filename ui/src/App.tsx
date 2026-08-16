@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, Mode, SessionInfo, Summary } from "./api"
 import {
-  archiveSession, fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest,
+  archiveSession, fetchAudit, fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest,
   fetchKaliStatus, fetchSessionHistory, fetchState, postConfirm, postHint, postVerify,
   resumeBench, startBench, stopBench,
 } from "./api"
+import type { AuditReport } from "./api"
 import FullTranscript from "./components/FullTranscript"
 import GlassCard from "./components/GlassCard"
 import StatCard from "./components/StatCard"
@@ -246,6 +247,7 @@ function BenchPage() {
   const [history, setHistory] = useState<BenchRunInfo[]>([])
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
+  const [audit, setAudit] = useState<AuditReport | null>(null)
   const [toast, setToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
 
   useEffect(() => {
@@ -420,6 +422,17 @@ function BenchPage() {
                             }}>
                             续跑</button>
                         )}
+                        {h.status !== "running" && (
+                          <button className="btn btn-sm"
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              setToast({ msg: "审计中…" })
+                              const rep = await fetchAudit(h.id)
+                              setAudit(rep)
+                              setToast({ msg: rep ? "审计完成" : "审计失败", kind: rep ? "ok" : "err" })
+                            }}>
+                            审计</button>
+                        )}
                         <button className="btn btn-sm"
                           onClick={(e) => { e.stopPropagation(); setSelectedRun(selectedRun === h.id ? null : h.id); setOpen(null) }}>
                           {selectedRun === h.id ? "收起" : "查看"}</button>
@@ -429,6 +442,35 @@ function BenchPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {audit && (
+          <div className="panel-card">
+            <div className="panel-card-head">
+              <h3 className="panel-card-title">完整性审计 {audit.run_id}</h3>
+              <button className="btn btn-sm" onClick={() => setAudit(null)}>关闭</button>
+            </div>
+            <div className="muted" style={{ marginBottom: 8 }}>
+              解出构成：<b style={{ color: "var(--ok)" }}>干净 {audit.solved_breakdown.clean}</b>
+              {" · "}<b style={{ color: "var(--warn)" }}>OSINT {audit.solved_breakdown.osint}</b>
+              {" · "}<b style={{ color: "var(--danger)" }}>存疑 {audit.solved_breakdown.cheat}</b>
+              {" / "}共 {audit.solved_breakdown.total}
+            </div>
+            {Object.entries(audit.challenges)
+              .filter(([, r]) => r.verdict !== "clean")
+              .map(([cid, r]) => (
+                <details key={cid} style={{ marginBottom: 4 }}>
+                  <summary>
+                    <span className={`cat-badge ${r.verdict === "cheat" ? "cat-dead" : "cat-misc"}`}>
+                      {r.verdict === "cheat" ? "存疑" : "OSINT"}</span>
+                    {" "}<b>{cid}</b><span className="muted">（证据 {r.evidence_count} 条）</span>
+                  </summary>
+                  <pre className="run-log" style={{ maxHeight: 140, overflow: "auto" }}>
+                    {r.evidence.map((e) => `${e.tool}: ${e.arg}`).join("\n")}
+                  </pre>
+                </details>
+              ))}
           </div>
         )}
 

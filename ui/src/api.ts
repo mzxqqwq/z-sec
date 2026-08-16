@@ -220,6 +220,19 @@ export async function resumeBench(runId: string): Promise<{ ok: boolean; msg: st
   return await r.json()
 }
 
+export interface AuditReport {
+  run_id: string
+  summary: { clean: number; osint: number; cheat: number; total: number }
+  solved_breakdown: { clean: number; osint: number; cheat: number; total: number }
+  challenges: Record<string, { verdict: string; evidence_count: number; evidence: { tool: string; arg: string }[] }>
+}
+
+export async function fetchAudit(runId: string): Promise<AuditReport | null> {
+  const r = await fetch(`/api/bench/audit/${encodeURIComponent(runId)}`)
+  if (!r.ok) return null
+  return await r.json()
+}
+
 export async function fetchBenchHistory(): Promise<BenchRunInfo[]> {
   const r = await fetch("/api/bench/history")
   if (!r.ok) return []

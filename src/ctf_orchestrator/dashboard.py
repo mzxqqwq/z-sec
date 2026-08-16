@@ -439,6 +439,12 @@ def api_bench_resume(run_id: str):
     return jsonify({"ok": ok, "msg": msg})
 
 
+@app.get("/api/bench/audit/<run_id>")
+def api_bench_audit(run_id: str):
+    import audit
+    return jsonify(audit.audit_run(run_id))
+
+
 @app.get("/api/bench/status")
 def api_bench_status():
     return jsonify(bench_admin.status())
