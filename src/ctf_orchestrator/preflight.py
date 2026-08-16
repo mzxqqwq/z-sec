@@ -48,6 +48,36 @@ def main() -> int:
     except Exception as e:
         check("Kali CTF 工具链", False, str(e))
 
+    # 4b. SageMath（podman 容器包装 /usr/local/bin/sage；worker 直敲 sage xxx.sage）
+    try:
+        r = requests.post("http://10.174.153.128:5000/api/command",
+                          json={"command": "mkdir -p /root/ctf/preflight && "
+                                           "printf 'print(factor(15))\\n' > /root/ctf/preflight/t.sage && "
+                                           "cd /root/ctf/preflight && sage t.sage 2>&1 | tail -1"},
+                          timeout=120)
+        check("Kali SageMath", "3 * 5" in r.json().get("stdout", ""),
+              r.json().get("stdout", "")[-60:])
+    except Exception as e:
+        check("Kali SageMath", False, str(e))
+
+    # 4c. pwndbg
+    try:
+        r = requests.post("http://10.174.153.128:5000/api/command",
+                          json={"command": "gdb -q -batch -ex 'quit' 2>&1 | grep -ci pwndbg"},
+                          timeout=60)
+        check("Kali pwndbg", int((r.json().get("stdout", "") or "0").strip() or 0) > 0)
+    except Exception as e:
+        check("Kali pwndbg", False, str(e))
+
+    # 4d. podman（SageMath 包装 + benchmark 服务题复活依赖）
+    try:
+        r = requests.post("http://10.174.153.128:5000/api/command",
+                          json={"command": "podman --version 2>&1 | head -1"},
+                          timeout=60)
+        check("Kali podman", "podman version" in r.json().get("stdout", ""))
+    except Exception as e:
+        check("Kali podman", False, str(e))
+
     # 5. 技能包
     skills = Path.home() / ".pi" / "agent" / "skills"
     n = len([d for d in skills.iterdir() if d.is_dir()]) if skills.exists() else 0
