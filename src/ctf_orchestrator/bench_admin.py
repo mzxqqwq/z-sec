@@ -282,7 +282,7 @@ def _status_locked() -> dict[str, Any]:
             return {"status": "running", "platform": rec.get("bench_id"),
                     "elapsed": round(time.time() - float(rec.get("started_at") or time.time()), 1),
                     "pid": pid, "exit_code": None, "run_id": rec.get("id"),
-                    "log_tail": _log_tail(rec.get("id"))}
+                    "log_tail": _log_tail(40, rec.get("id"))}
         _finalize(rec.get("id", ""), "done" if _run_result_exists(rec.get("id", "")) else "failed")
     # 记录缺失但 run.pid 存活（极端情况）：仍报 running，防止并发开跑
     orphan_pid = _run_pid_file_alive()
