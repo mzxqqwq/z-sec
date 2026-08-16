@@ -93,13 +93,21 @@ APT_FIX_LINE = (
     "/etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; true"
 )
 
+# 仅这些 EOL 基础镜像才注入（22.04 等未 EOL 的源仍然可用，注入反而会 404）
+EOL_BASE_RE = re.compile(
+    r"ubuntu:(1[468]\.04|20\.04)|"
+    r"debian:(9|10|stretch|buster)|"
+    r"python:[0-9.]+-slim-(stretch|buster)|python:(2|3)\.(7|8|9)-(stretch|buster)",
+    re.I)
+
 
 def _patch_dockerfile(text: str) -> str:
-    """每个 FROM 后注入 apt 源替换（新源上 sed 无害 no-op，幂等）。"""
+    """仅对 EOL 基础镜像的 FROM 后注入 apt 源替换（幂等）。"""
     out: list[str] = []
     for line in text.splitlines():
         out.append(line)
-        if line.strip().upper().startswith("FROM") and APT_FIX_LINE not in text:
+        if line.strip().upper().startswith("FROM") and EOL_BASE_RE.search(line) \
+                and APT_FIX_LINE not in text:
             out.append(APT_FIX_LINE)
     return "\n".join(out) + ("\n" if text.endswith("\n") else "")
 

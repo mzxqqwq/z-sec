@@ -91,7 +91,13 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 {board_section}
 {reminder_section}
 {human_hints}
+{net_policy_section}
 """
+
+BENCH_NET_NOTICE = """\
+【benchmark 网络封锁】本场为能力评测：严禁联网搜索题目/题解（curl/wget/git/pip/外联
+命令会被工具层拦截并报错）。题目附件 + 本地靶机（127.0.0.1）足以解题，请完全依赖
+自己的分析。这是硬性要求，不要浪费时间尝试绕过。"""
 
 CONTINUATION_MESSAGE = """\
 【续跑提示】你之前的一次尝试没有解出这道题。继续当前任务：
@@ -127,7 +133,8 @@ class Orchestrator:
     def __init__(self, workspace: Path, platform: BasePlatform, pi_cmd: list[str],
                  model_config: dict[str, Any],
                  max_attempts: int = 3,
-                 only: set[str] | None = None) -> None:
+                 only: set[str] | None = None,
+                 bench_mode: bool = False) -> None:
         self.ws = workspace
         self.ws.mkdir(parents=True, exist_ok=True)
         (self.ws / "hints").mkdir(parents=True, exist_ok=True)
@@ -135,6 +142,9 @@ class Orchestrator:
         self.platform = platform
         self.pi_cmd = pi_cmd
         self.model_config = model_config
+        # benchmark 模式：给 worker 注入 NET_POLICY=local-only（工具层封锁外联，
+        # benchmark 题公开可搜而比赛题搜不到——防开卷抄解，2026-08-17）
+        self.bench_mode = bench_mode
         # max_attempts 语义（定版后）：单题连续未解的自动续派上限（ralph-loop 层预算）
         self.max_attempts = max_attempts
         self.board = Board(workspace / "state.json")
@@ -297,7 +307,8 @@ class Orchestrator:
             continuation_section=continuation_section,
             board_section=board_section,
             reminder_section=reminder_section,
-            human_hints=self._hints(cid))
+            human_hints=self._hints(cid),
+            net_policy_section=("\n" + BENCH_NET_NOTICE) if self.bench_mode else "")
 
         configs = self._worker_configs(cs)
         print(f"[{cid}] race: {len(configs)} workers "
@@ -319,6 +330,7 @@ class Orchestrator:
             proc = start_worker_rpc(cmd, workdir, log_path,
                                     extra_env={"MESSAGE_BUS_FILE": str(bus_path),
                                                "WORKER_TAG": tag,
+                                               "NET_POLICY": "local-only" if self.bench_mode else "",
                                                "KB_ENABLED":
                                                    "1" if self.model_config.get("kb_enabled") else "0"})
             procs[proc] = {**cfg, "log": log_path, "idx": idx,
