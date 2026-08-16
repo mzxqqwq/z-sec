@@ -271,7 +271,7 @@ def _status_locked() -> dict[str, Any]:
         return {"status": status, "platform": _run.get("platform"),
                 "elapsed": round(time.time() - float(_run.get("started_at") or time.time()), 1),
                 "pid": proc.pid, "exit_code": proc.returncode,
-                "run_id": _run.get("run_id"), "log_tail": _log_tail()}
+                "run_id": _run.get("run_id"), "log_tail": _log_tail(40, _run.get("run_id"))}
     # 无内存进程：收养历史记录里"仍在运行"的跑分（看板重启后的韧性）
     records = _load_index()
     running_recs = [r for r in records if r.get("status") == "running"]
