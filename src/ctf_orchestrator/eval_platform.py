@@ -66,24 +66,26 @@ NYU_ROOT_DEFAULT = r"D:\ctf-agent\benchmarks\nyu-ctf-bench"
 
 
 def probe_host(host: str, port: int, timeout: int = 6) -> bool:
-    """经 Kali 探测 host:port 是否真的活着（两层）：
+    """经 Kali 探测 host:port 是否真的活着（先被动后主动两层）：
 
-    ① TCP 握手；② 发一个换行后 5 秒内收到任何响应字节。
-    只做①会被 VPN fake-ip（198.18.x 代理网段）欺骗——代理接受连接但真服务已死
+    ① TCP 握手 + 1.5s 内被动等横幅（不发送任何字节，不污染 pickle 类原始输入服务）；
+    ② 仍沉默才发最小 HTTP 请求行（werkzeug/nginx 需要请求行才回字节）。
+    只做 TCP 握手会被 VPN fake-ip（198.18.x 代理网段）欺骗——代理接受连接但真服务已死
     （2026-08-16 describeme 实测：TCP CONN_OK 但服务零响应）。
-    CTF 服务题（socat/nc 类）与 HTTP 服务对换行/请求都会立刻回字节，②可靠。
     """
     try:
         from workers import kali_exec
-        # 连接 + 发探测载荷 + 收响应；timeout 保证总时长可控。
-        # 载荷 = 最小 HTTP 请求行（NO 前导换行！）：nc/socat 类服务对任意字节都会回提示，
-        # HTTP 类服务对请求行必回状态码——两类都必然产生字节。前导 "\n" 会被 werkzeug
-        # (BaseHTTPRequestHandler) 当作空请求行 → 直接关连接零字节（Flag Command / Path of
-        # Survival 探活假死，2026-08-16 实测）；nginx 类服务对无前导换行的请求行也正常回应。
-        cmd = (f"timeout {timeout + 8} bash -c '"
+        # 两层探测：① 连接后 1.5s 内被动等横幅（绝大多数 nc/socat 类 CTF 服务一连接就
+        # 回提示，不发任何字节——对 pickle 类解析原始输入的服务不造成污染）；② 若沉默，
+        # 发最小 HTTP 请求行（werkzeug/nginx 必须收到请求行才回字节；nc/socat 对任意
+        # 输入也会回，两类都有字节产出）。前导换行不能加：werkzeug 会把空请求行当成
+        # 请求行直接关连接零字节（Flag Command / Path of Survival 探活假死实测）。
+        cmd = (f"timeout {timeout + 10} bash -c '"
                f"exec 3<>/dev/tcp/{host}/{port} 2>/dev/null || exit 1; "
+               f"b=$(timeout 1.5 head -c 64 <&3); "
+               f"if [ -n \"$b\" ]; then printf %s \"$b\"; else "
                f"printf \"GET / HTTP/1.0\\r\\n\\r\\n\" >&3; "
-               f"timeout {timeout} head -c 64 <&3'")
+               f"timeout {timeout} head -c 64 <&3; fi'")
         out = kali_exec(cmd, timeout=timeout + 14)
         return bool((out.get("stdout") or "").strip())
     except Exception:

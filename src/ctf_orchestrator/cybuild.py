@@ -96,6 +96,10 @@ def _tar_filter(rel_path: str, allowed_prefixes: set[str]) -> bool:
     parts = rel_path.replace("\\", "/").split("/")
     if "writeup" in parts[-1].lower():
         return False
+    # 官方解脚本文件名不进 Kali（sol.py/solve.py/solver.py/exploit.py/solution.py）
+    stem = parts[-1].rsplit(".", 1)[0].lower()
+    if parts[-1].lower().endswith(".py") and re.match(r"^(sol|solve|solver|exploit|solution)[a-z0-9_-]*$", stem):
+        return False
     for p in parts:
         if p in EXCLUDE_DIRS:
             # 在任一放行的构建上下文前缀内 → 放行

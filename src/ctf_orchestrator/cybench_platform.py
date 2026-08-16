@@ -135,6 +135,11 @@ class CybenchPlatform(BasePlatform):
                 continue
             if f.name.lower().startswith("flag") or "writeup" in f.name.lower():
                 continue
+            # 官方解脚本文件名（sol.py/solve.py/solver.py/exploit.py/solution.py），
+            # 任何层级都不下发——题目素材不会叫这个名字
+            if f.suffix == ".py" and re.match(r"^(sol|solve|solver|exploit|solution)[a-z0-9_-]*$",
+                                              f.stem, re.I):
+                continue
             out.append("/".join(rel_parts))
         return out
 
