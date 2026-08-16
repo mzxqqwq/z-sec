@@ -26,6 +26,29 @@ MANIFEST_PATH = Path(r"D:\ctf-agent\src\tools\service-manifest.json")
 PROBE_DEADLINE = 20  # 起容器后等待服务可连的最长时间（秒）
 PODMAN_TIMEOUT = 120  # 单条 podman 命令上限（秒）
 
+# 特殊服务题：通用 podman run -d -p 跑不起来的（docker-in-docker/多阶段交互），
+# 用宿主 socat 服务 + 每连接容器替代。镜像名/端口/启动命令都在这里声明。
+# 注意：这类题的 flag 烘焙在镜像内部（不落 Kali 磁盘），会话容器 --rm 即销毁。
+import base64 as _b64
+
+_SHOWDOWN_SVC = ("#!/bin/bash\n"
+                 "exec podman run --rm -i -t docker.io/llmctf/2018f-msc-showdown-container:latest\n")
+_SHOWDOWN_SVC_B64 = _b64.b64encode(_SHOWDOWN_SVC.encode()).decode()
+
+HOST_OVERRIDES: dict[str, dict[str, Any]] = {
+    "msc-showdown": {
+        "port": 9222,
+        "start": (f"echo {_SHOWDOWN_SVC_B64} | base64 -d > /root/ctf/showdown-svc.sh && "
+                  "chmod +x /root/ctf/showdown-svc.sh; "
+                  "test -f /tmp/showdown-svc.pid && kill -0 $(cat /tmp/showdown-svc.pid) 2>/dev/null && exit 0; "
+                  "nohup socat TCP-LISTEN:9222,fork,reuseaddr "
+                  "EXEC:/root/ctf/showdown-svc.sh,pty,stderr,setsid,sane "
+                  ">/tmp/showdown-svc.log 2>&1 & echo $! > /tmp/showdown-svc.pid"),
+        "stop": ("test -f /tmp/showdown-svc.pid && kill $(cat /tmp/showdown-svc.pid) 2>/dev/null; "
+                 "pkill -f 'socat TCP-LISTEN:9222' 2>/dev/null; rm -f /tmp/showdown-svc.pid; true"),
+    },
+}
+
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
@@ -163,11 +186,23 @@ class ServiceReviver:
     # ---------- 主流程 ----------
     def revive(self, cid: str, meta_path: str,
                internal_port: Optional[int]) -> tuple[bool, Optional[int], str]:
-        """返回 (ok, host_port, err)。成功时容器已在 Kali 上运行。"""
+        """返回 (ok, host_port, err)。成功时服务已在 Kali 上可连。"""
         if not self.enabled:
             return False, None, "revive disabled"
         if cid in self._running:
             return True, int(self._running[cid].get("port") or 0), "already revived"
+
+        # 特殊服务题：宿主 socat 服务（docker-in-docker 等通用 podman run 跑不起来的）
+        ov = HOST_OVERRIDES.get(cid)
+        if ov is None:
+            tail = _norm(meta_path).rstrip("/").split("/")[-1]
+            for key, spec in HOST_OVERRIDES.items():
+                if _norm(key) == tail:
+                    ov = spec
+                    break
+        if ov is not None:
+            return self._revive_override(cid, ov)
+
         entry = self.match(meta_path)
         if entry is None:
             return False, None, "no manifest entry"
@@ -247,9 +282,32 @@ class ServiceReviver:
             self._sh(f"podman network rm {net} >/dev/null 2>&1; true", timeout=30)
             return False, None, str(e)[:120]
 
+    def _revive_override(self, cid: str, ov: dict[str, Any]) -> tuple[bool, Optional[int], str]:
+        """宿主 socat 服务式复活（HOST_OVERRIDES）：跑 start 命令 → 探测端口。"""
+        port = int(ov.get("port") or 0)
+        try:
+            out, err = self._sh(str(ov.get("start", "")), timeout=90)
+            if "rror" in err:
+                raise RuntimeError(f"start failed: {err[:100]}")
+            from eval_platform import probe_host
+            deadline = time.time() + PROBE_DEADLINE
+            while time.time() < deadline:
+                if probe_host("127.0.0.1", port):
+                    self._running[cid] = {"override": True, "port": port,
+                                          "stop_cmd": str(ov.get("stop", "true"))}
+                    return True, port, ""
+                time.sleep(2)
+            raise RuntimeError("service did not answer probe")
+        except Exception as e:
+            self._sh(str(ov.get("stop", "true")), timeout=30)
+            return False, None, str(e)[:120]
+
     def stop(self, cid: str) -> None:
         info = self._running.pop(cid, None)
         if not info:
+            return
+        if info.get("override"):
+            self._sh(str(info.get("stop_cmd") or "true"), timeout=30)
             return
         for n in info.get("names", []):
             self._sh(f"podman rm -f {n} >/dev/null 2>&1; true", timeout=30)
