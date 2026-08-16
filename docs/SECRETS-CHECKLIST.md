@@ -55,20 +55,14 @@ env/
 
 > 团队机器路径/内网 IP 各不相同，发布前应改为**环境变量或占位符**（如 `%USERPROFILE%`、`<KALI_IP>`、`<REPO>`、`os.environ.get("KALI_API_URL")`）。
 
-### 2.1 内网 Kali IP `10.174.153.128`（14 处 src + 10 处 docs）
+### 2.1 内网 Kali IP `10.174.153.128`（✅ src 已处理，2026-08-16；docs 待替换占位符）
 
-`src/`（应改为读 `KALI_API_URL` 环境变量，`workers.py:129` 已有 `setdefault` 的正确写法，其余需对齐）：
+`src/` **已全部改为读 `KALI_API_URL` 环境变量**（默认值兜底，不影响现有运行）：
+`workers.py` 提供 `kali_api_url()`，dashboard / eval_run / eval_platform / preflight /
+revival 均已接入；`run-pi.ps1` 与 `ctf_orchestrator_v1.py.bak` 本来就是 env 驱动。
+队友只需 `$env:KALI_API_URL = "http://<自己的Kali IP>:5000"`。
 
-- `src/ctf_orchestrator/ctf_orchestrator_v1.py.bak:46`
-- `src/ctf_orchestrator/eval_platform.py:113`
-- `src/ctf_orchestrator/dashboard.py:260`
-- `src/ctf_orchestrator/eval_run.py:50`
-- `src/ctf_orchestrator/preflight.py:37,44,53,65,74`
-- `src/run-pi.ps1:9,29`
-- `src/ctf_orchestrator/workers.py:137,216`
-- `src/ctf_orchestrator/revival.py:87`
-
-`docs/`（改占位符 `<KALI_IP>`，或明确标注为团队内网地址）：
+`docs/`（历史文档，改占位符 `<KALI_IP>` 或标注为团队内网地址）：
 
 - `docs/AI-CTF-调研与冲刺方案.md:80`
 - `docs/ARCHITECTURE.md:41`
