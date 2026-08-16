@@ -223,7 +223,22 @@ def kali_api_url() -> str:
 
 
 def kali_exec(command: str, timeout: int = 300) -> dict[str, Any]:
-    resp = requests.post(f"{kali_api_url()}/api/command",
-                         json={"command": command}, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    """编排器旁路执行 Kali 命令——SSH 直连（2026-08-16 晚起，与 worker 同通道）。
+
+    旧实现走 REST :5000/api/command；REST 服务一挂，健康闸门/探测/容器运行全死
+    （实测三次 benchmark 死在健康闸门）。现统一走 ssh_exec（paramiko），
+    REST 降级为可选调试接口。返回结构保持兼容：{stdout, stderr, success, return_code}。
+    """
+    from ssh_exec import kali_ssh_exec
+    r = kali_ssh_exec(command, timeout=timeout)
+    return {"stdout": r.get("stdout") or "", "stderr": r.get("stderr") or "",
+            "success": bool(r.get("success")), "return_code": int(r.get("returncode") or -1)}
+
+
+def kali_healthy_gate() -> tuple[bool, str]:
+    """健康闸门（SSH）：连接 + 工具链导入。返回 (ok, detail)。"""
+    try:
+        from ssh_exec import kali_healthy
+        return kali_healthy()
+    except Exception as e:
+        return False, f"SSH 健康检查异常: {e}"

@@ -99,20 +99,14 @@ def main(argv: list[str] | None = None) -> int:
     pid_file = ws / "run.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
-    # 健康闸门：Kali 不可达就拒绝开跑（防止 1 小时评测白跑）
+    # 健康闸门：Kali 不可达就拒绝开跑（防止 1 小时评测白跑）——SSH 直连检查
     if args.platform in ("ctftiny",):
-        import requests as _req
-        from workers import kali_api_url
-        gate_url = args.kali_url or kali_api_url()
-        try:
-            h = _req.get(f"{gate_url}/health", timeout=8)
-            if h.status_code != 200 or "healthy" not in h.text:
-                print(f"Kali 健康检查失败: HTTP {h.status_code}")
-                return 2
-        except Exception as e:
-            print(f"Kali 不可达，评测中止: {e}")
+        from workers import kali_healthy_gate
+        ok, detail = kali_healthy_gate()
+        if not ok:
+            print(f"Kali 不可达，评测中止: {detail[:200]}")
             return 2
-        print("Kali 健康检查通过")
+        print(f"Kali 健康检查通过（SSH）")
         # 完整性：清空 Kali 工作区残留（上一 run 的 worker 可能留下题库树/真值泄漏，
         # 本 run 的 worker 用 find 就能翻到——2026-08-16 审计事故）。
         # 只清 /root/ctf 下的挑战目录；showdown 等容器服务由 revival 启动时重建。

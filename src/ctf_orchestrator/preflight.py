@@ -24,9 +24,8 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def main() -> int:
-    # Kali REST 地址：环境变量 KALI_API_URL 可覆盖（队友机器 IP 不同）
-    from workers import kali_api_url
-    KALI = kali_api_url()
+    # Kali 检查统一走 SSH 直连（2026-08-16 起弃 REST，与 worker 同通道）
+    from workers import kali_exec, kali_healthy_gate
 
     # 1. DeepSeek key
     key_file = ROOT / "secrets" / "deepseek.key"
@@ -36,49 +35,42 @@ def main() -> int:
     pi_cli = ROOT / "pi-mono" / "packages" / "coding-agent" / "dist" / "cli.js"
     check("pi CLI 已构建", pi_cli.exists())
 
-    # 3. Kali API
+    # 3. Kali SSH 连通性（2026-08-16 起弃 REST，与 worker 同通道）
     try:
-        r = requests.get(f"{KALI}/health", timeout=8)
-        check("Kali API", r.status_code == 200 and "healthy" in r.text, r.text[:60])
+        ok, detail = kali_healthy_gate()
+        check("Kali SSH", ok, detail[:60])
     except Exception as e:
-        check("Kali API", False, str(e))
+        check("Kali SSH", False, str(e))
 
     # 4. Kali 关键工具
     try:
-        r = requests.post(f"{KALI}/api/command",
-                          json={"command": "python3 -c 'import pwn,z3,angr,sympy; print(\"ok\")' 2>&1 | tail -1"},
-                          timeout=30)
-        check("Kali CTF 工具链", "ok" in r.json().get("stdout", ""))
+        r = kali_exec("python3 -c 'import pwn,z3,angr,sympy; print(\"ok\")' 2>&1 | tail -1",
+                      timeout=60)
+        check("Kali CTF 工具链", "ok" in r.get("stdout", ""))
     except Exception as e:
         check("Kali CTF 工具链", False, str(e))
 
     # 4b. SageMath（podman 容器包装 /usr/local/bin/sage；worker 直敲 sage xxx.sage）
     try:
-        r = requests.post(f"{KALI}/api/command",
-                          json={"command": "mkdir -p /root/ctf/preflight && "
-                                           "printf 'print(factor(15))\\n' > /root/ctf/preflight/t.sage && "
-                                           "cd /root/ctf/preflight && sage t.sage 2>&1 | tail -1"},
-                          timeout=120)
-        check("Kali SageMath", "3 * 5" in r.json().get("stdout", ""),
-              r.json().get("stdout", "")[-60:])
+        r = kali_exec("mkdir -p /root/ctf/preflight && "
+                      "printf 'print(factor(15))\\n' > /root/ctf/preflight/t.sage && "
+                      "cd /root/ctf/preflight && sage t.sage 2>&1 | tail -1", timeout=120)
+        check("Kali SageMath", "3 * 5" in r.get("stdout", ""),
+              (r.get("stdout", "") or "")[-60:])
     except Exception as e:
         check("Kali SageMath", False, str(e))
 
     # 4c. pwndbg
     try:
-        r = requests.post(f"{KALI}/api/command",
-                          json={"command": "gdb -q -batch -ex 'quit' 2>&1 | grep -ci pwndbg"},
-                          timeout=60)
-        check("Kali pwndbg", int((r.json().get("stdout", "") or "0").strip() or 0) > 0)
+        r = kali_exec("gdb -q -batch -ex 'quit' 2>&1 | grep -ci pwndbg", timeout=60)
+        check("Kali pwndbg", int((r.get("stdout", "") or "0").strip() or 0) > 0)
     except Exception as e:
         check("Kali pwndbg", False, str(e))
 
-    # 4d. podman（SageMath 包装 + benchmark 服务题复活依赖）
+    # 4d. podman（SageMath 包装 + benchmark 服务题容器运行依赖）
     try:
-        r = requests.post(f"{KALI}/api/command",
-                          json={"command": "podman --version 2>&1 | head -1"},
-                          timeout=60)
-        check("Kali podman", "podman version" in r.json().get("stdout", ""))
+        r = kali_exec("podman --version 2>&1 | head -1", timeout=60)
+        check("Kali podman", "podman version" in r.get("stdout", ""))
     except Exception as e:
         check("Kali podman", False, str(e))
 

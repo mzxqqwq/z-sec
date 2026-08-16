@@ -253,13 +253,11 @@ def api_summary():
 
 @app.get("/api/kali-status")
 def api_kali_status():
-    """Kali 健康（SSH 通道 ping + REST /health 双检）。"""
-    import requests as _req
-    import workers
+    """Kali 健康（SSH 直连检查，2026-08-16 起与 worker 同通道）。"""
     ok = False
     try:
-        r = _req.get(f"{workers.kali_api_url()}/health", timeout=4)
-        ok = r.status_code == 200 and "healthy" in r.text
+        import workers
+        ok, _detail = workers.kali_healthy_gate()
     except Exception:
         ok = False
     return jsonify({"ok": ok})

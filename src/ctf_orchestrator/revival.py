@@ -59,10 +59,9 @@ def _safe(name: str) -> str:
 
 
 def _kali(api: str, cmd: str, timeout: int = PODMAN_TIMEOUT) -> dict[str, Any]:
-    import requests
-    resp = requests.post(f"{api}/api/command", json={"command": cmd}, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    """Kali 命令执行——SSH 直连（2026-08-16 起弃 REST，与 worker 同通道）。"""
+    from workers import kali_exec
+    return kali_exec(cmd, timeout=timeout)
 
 
 def _port_pairs(ports: list[str]) -> list[tuple[int, int]]:
