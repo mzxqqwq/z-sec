@@ -38,7 +38,7 @@ psutil
 
 ### A.2 Node.js + pnpm
 
-- **Node.js** ≥ 20（本机实测 v24.15.0，自带 npm 11.12.1）。下载：https://nodejs.org/
+- **Node.js** ≥ 22.19.0（pi-mono 运行时的 `engines` 硬性要求；本机实测 v24.15.0，自带 npm 11.12.1）。下载：https://nodejs.org/
 - **pnpm**：前端 `ui/` 用 pnpm 管理（`ui/pnpm-lock.yaml`，lockfileVersion `'9.0'`）。本机实测 pnpm 11.1.2。安装：
 
 ```powershell
