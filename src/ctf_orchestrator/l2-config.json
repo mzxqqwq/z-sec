@@ -1,6 +1,7 @@
 {
   "strong": {"model": "deepseek-v4-pro", "thinking": "medium"},
   "weak": {"model": "deepseek-v4-flash", "thinking": "low"},
+  "_comment": "observer 未配置时回退 strong；可另配 {\"observer\": {\"model\": ..., \"thinking\": ...}}",
   "max_parallel_challenges": 3,
   "planning_enabled": true
 }

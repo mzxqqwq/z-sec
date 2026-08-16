@@ -147,11 +147,13 @@ class Orchestrator:
             print(f"[planner] disabled: {e}")
             self.planner = Planner("", enabled=False)
         try:
-            self.supervisor = Supervisor(Planner.load_key_from_secrets(),
+            # Observer 对齐 BreachWeave：独立 pi 会话 + 工具落动作（无 JSON 解析，2026-08-16）
+            obs_cfg = model_config.get("observer") or model_config.get("strong")
+            self.supervisor = Supervisor(self.pi_cmd, self.ws, obs_cfg,
                                          enabled=bool(model_config.get("supervisor_enabled", True)))
         except Exception as e:
             print(f"[supervisor] disabled: {e}")
-            self.supervisor = Supervisor("", enabled=False)
+            self.supervisor = Supervisor(self.pi_cmd, self.ws, None, enabled=False)
 
     # ---------- 平台 ----------
     def _platform_submit(self, cid: str, flag: str) -> Any:
