@@ -75,18 +75,21 @@ def probe_host(host: str, port: int, timeout: int = 6) -> bool:
     """
     try:
         from workers import kali_exec
-        # 两层探测：① 连接后 1.5s 内被动等横幅（绝大多数 nc/socat 类 CTF 服务一连接就
-        # 回提示，不发任何字节——对 pickle 类解析原始输入的服务不造成污染）；② 若沉默，
-        # 发最小 HTTP 请求行（werkzeug/nginx 必须收到请求行才回字节；nc/socat 对任意
-        # 输入也会回，两类都有字节产出）。前导换行不能加：werkzeug 会把空请求行当成
-        # 请求行直接关连接零字节（Flag Command / Path of Survival 探活假死实测）。
-        cmd = (f"timeout {timeout + 10} bash -c '"
+        # 两层探测（两条独立连接）：① 连接后 2.5s 内被动等横幅——绝大多数 nc/socat 类
+        # CTF 服务一连接就回提示，不发任何字节（不污染 pickle 类解析原始输入的服务）；
+        # ② 仍沉默就开新连接发最小 HTTP 请求行（werkzeug/nginx 必须收到请求行才回字节；
+        # nc/socat 对任意输入也会回）。前导换行不能加：werkzeug 会把空请求行当请求行
+        # 直接关连接零字节（Flag Command / Path of Survival 探活假死实测）。
+        # 不能在同一 fd 上先 head 超时再补发——被杀的 head 会把后续读全吞掉（pickle-jail 实测）。
+        cmd = (f"timeout {timeout + 12} bash -c '"
                f"exec 3<>/dev/tcp/{host}/{port} 2>/dev/null || exit 1; "
-               f"b=$(timeout 1.5 head -c 64 <&3); "
-               f"if [ -n \"$b\" ]; then printf %s \"$b\"; else "
+               f"b=$(timeout 2.5 head -c 64 <&3); "
+               f"if [ -n \"$b\" ]; then printf %s \"$b\"; exit 0; fi; "
+               f"exec 3<&-; "
+               f"exec 3<>/dev/tcp/{host}/{port} 2>/dev/null || exit 1; "
                f"printf \"GET / HTTP/1.0\\r\\n\\r\\n\" >&3; "
-               f"timeout {timeout} head -c 64 <&3; fi'")
-        out = kali_exec(cmd, timeout=timeout + 14)
+               f"timeout {timeout} head -c 64 <&3'")
+        out = kali_exec(cmd, timeout=timeout + 16)
         return bool((out.get("stdout") or "").strip())
     except Exception:
         return False
