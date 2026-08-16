@@ -16,7 +16,7 @@
       "thinking": "medium"
     },
     "digest": {
-      "model": "deepseek-v4-pro"
+      "model": "deepseek-chat"
     }
   },
   "runtime": {
@@ -53,9 +53,9 @@
       ]
     },
     {
+      "base_url": "http://139.196.205.198:3000/v1",
       "id": "newapi",
       "label": "中转站/NewAPI 网关",
-      "base_url": "http://139.196.205.198:3000",
       "models": [
         "gpt-5.6-sol",
         "gpt-5.6-luna",
