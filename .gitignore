@@ -9,20 +9,27 @@ benchmarks/
 workspace/
 eval-workspace/
 eval-workspace2/
+eval-workspace-bench/
 tmp/
 secrets/
 __pycache__/
 *.pyc
 ui/node_modules/
 ui/dist/
-
-
-# ¸´»î¹¦ÄÜÔËĞĞÊ±²úÎïÓëÒÀÀµ
 src/pi-ext/node_modules/
 refs/
-eval-workspace-bench/
 src/tools/_*.py
 
-# Í³Ò»ÅäÖÃÖĞĞÄ£¨ÃÜÔ¿²»Èë¿â£©
+# ç»Ÿä¸€é…ç½®ä¸­å¿ƒï¼ˆå¯†é’¥æ°¸ä¸å…¥åº“ï¼‰
 config/secrets.json
 config/*.tmp
+
+# é€šç”¨é˜²å¾¡ï¼ˆæ¢æœºå™¨/ç¯å¢ƒäº§ç‰©ï¼‰
+.venv/
+venv/
+env/
+.env
+.env.*
+*.local
+*.key
+*.log
