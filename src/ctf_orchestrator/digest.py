@@ -33,6 +33,18 @@ DIGEST_PROMPT = """你是 CTF 比赛盯盘助手。下面是一名 AI 解题员�
 """
 
 
+def _llm_runtime() -> tuple[str, str, str]:
+    """(model, base_url, api_key) —— 统一配置中心（config/agent.json + secrets）。"""
+    try:
+        import agent_config
+        cfg = agent_config.llm("digest")
+        model = cfg.get("model") or MODEL
+        raw = agent_config.raw_llm(model)
+        return model, raw["base_url"], raw["api_key"] or agent_config.deepseek_api_key()
+    except Exception:
+        return MODEL, "https://api.deepseek.com", _load_key()
+
+
 def _load_key() -> str:
     if KEY_FILE.exists():
         return KEY_FILE.read_text(encoding="ascii").strip()
@@ -107,17 +119,17 @@ def digest(workspace: Path, cid: str, log_dir: Path | None = None) -> str:
         return out
 
     activity = extract_activity(text)
-    api_key = _load_key()
+    model, base_url, api_key = _llm_runtime()
     if not api_key:
         out = "摘要生成失败（缺 API key）"
         _cache[key] = (time.time(), out)
         return out
     try:
         r = requests.post(
-            API_URL,
+            f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "model": MODEL,
+                "model": model,
                 "messages": [{"role": "user", "content":
                               DIGEST_PROMPT.format(activity=activity)}],
                 "max_tokens": 300,

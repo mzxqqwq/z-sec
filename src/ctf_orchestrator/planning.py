@@ -35,14 +35,22 @@ PLAN_TIMEOUT = 90  # 规划器不允许拖时间
 
 class Planner:
     def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com",
-                 enabled: bool = True) -> None:
+                 model: str = PLAN_MODEL, enabled: bool = True) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.model = model
         self.enabled = enabled
         self._cache: dict[str, Optional[str]] = {}
 
     @staticmethod
     def load_key_from_secrets(path: str = r"D:\ctf-agent\secrets\deepseek.key") -> str:
+        try:
+            import agent_config  # 统一配置中心优先（Web UI 可设 key）
+            key = agent_config.deepseek_api_key()
+            if key:
+                return key
+        except Exception:
+            pass
         return Path(path).read_text(encoding="ascii").strip()
 
     def plan(self, cid: str, challenge_json: str, attempt: int) -> Optional[str]:
@@ -57,7 +65,7 @@ class Planner:
 
     def _call(self, challenge_json: str) -> Optional[str]:
         body = {
-            "model": PLAN_MODEL,
+            "model": self.model,
             "messages": [{"role": "user", "content": PLAN_PROMPT.format(challenge_json=challenge_json)}],
             "max_tokens": PLAN_MAX_TOKENS,
             "temperature": 0.3,

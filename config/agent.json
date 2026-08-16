@@ -1,0 +1,38 @@
+{
+  "llm": {
+    "strong":   { "model": "deepseek-v4-pro",  "thinking": "medium" },
+    "weak":     { "model": "deepseek-v4-flash", "thinking": "low" },
+    "planner":  { "model": "deepseek-v4-pro" },
+    "observer": { "model": "deepseek-v4-pro",  "thinking": "medium" },
+    "digest":   { "model": "deepseek-chat" }
+  },
+  "runtime": {
+    "max_parallel_challenges": 3,
+    "planning_enabled": true,
+    "supervisor_enabled": true,
+    "kb_enabled": false
+  },
+  "providers": [
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "models": ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat"]
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY",
+      "models": ["gpt-4o"]
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "base_url": "https://api.anthropic.com",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "models": ["claude-sonnet-4-20250514"]
+    }
+  ]
+}

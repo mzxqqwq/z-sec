@@ -119,12 +119,20 @@ def _worker_env() -> dict[str, str]:
 
     原 run-pi.ps1 的职责移到 Python 侧，避免 PowerShell 5.1 转发
     含引号参数时的 argv 拆分（曾导致 "Unknown option: --" 秒退）。
+    key 统一走 config/secrets.json（Web UI 可配），旧 secrets/deepseek.key 兜底。
     """
     import os
     env = os.environ.copy()
-    key_file = Path(r"D:\ctf-agent\secrets\deepseek.key")
-    if key_file.exists():
-        env["DEEPSEEK_API_KEY"] = key_file.read_text(encoding="utf-8").strip()
+    try:
+        import agent_config
+        agent_config.apply_env()
+        key = agent_config.deepseek_api_key()
+        if key:
+            env["DEEPSEEK_API_KEY"] = key
+    except Exception:
+        key_file = Path(r"D:\ctf-agent\secrets\deepseek.key")
+        if key_file.exists():
+            env["DEEPSEEK_API_KEY"] = key_file.read_text(encoding="utf-8").strip()
     env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
     env.setdefault("KALI_API_URL", "http://10.174.153.128:5000")
     return env

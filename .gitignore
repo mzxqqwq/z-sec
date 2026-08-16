@@ -22,3 +22,7 @@ src/pi-ext/node_modules/
 refs/
 eval-workspace-bench/
 src/tools/_*.py
+
+# 统一配置中心（密钥不入库）
+config/secrets.json
+config/*.tmp

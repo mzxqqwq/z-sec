@@ -445,6 +445,43 @@ def api_bench_audit(run_id: str):
     return jsonify(audit.audit_run(run_id))
 
 
+# ---- 统一配置中心（config/agent.json + config/secrets.json，Web UI「配置」页）----
+@app.get("/api/config")
+def api_config_get():
+    import agent_config
+    cfg = agent_config.load()
+    return jsonify({
+        "llm": cfg.get("llm"),
+        "runtime": cfg.get("runtime"),
+        "providers": [{"id": p.get("id"), "label": p.get("label"),
+                       "base_url": p.get("base_url"), "models": p.get("models")}
+                      for p in cfg.get("providers") or []],
+        "keys": agent_config.secrets_status(),
+    })
+
+
+@app.post("/api/config")
+def api_config_post():
+    import agent_config
+    body = request.get_json(silent=True) or {}
+    errors = agent_config.validate(body)
+    if errors:
+        return jsonify({"ok": False, "msg": "；".join(errors)}), 400
+    partial = {}
+    if isinstance(body.get("llm"), dict):
+        partial["llm"] = body["llm"]
+    if isinstance(body.get("runtime"), dict):
+        partial["runtime"] = body["runtime"]
+    if partial:
+        agent_config.save(partial)
+    keys = body.get("api_keys")
+    if isinstance(keys, dict) and keys:
+        agent_config.set_secrets(keys)
+    else:
+        agent_config.apply_env()  # 至少刷新当前进程环境（供 digest 等使用）
+    return jsonify({"ok": True, "msg": "配置已保存", "keys": agent_config.secrets_status()})
+
+
 @app.get("/api/bench/status")
 def api_bench_status():
     return jsonify(bench_admin.status())

@@ -11,6 +11,7 @@ import GlassCard from "./components/GlassCard"
 import StatCard from "./components/StatCard"
 import StarBadge, { CategoryBadge } from "./components/StarBadge"
 import Toast from "./components/Toast"
+import ConfigPage from "./components/ConfigPage"
 
 const STATUS_TEXT: Record<string, string> = {
   new: "未触及", queued: "排队中", solving: "解题中",
@@ -625,7 +626,8 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
 }
 
 export default function App() {
-  const [nav, setNav] = useState<"main" | "bench">("main")
+  const [nav, setNav] = useState<"main" | "bench" | "config">("main")
+  const [cfgToast, setCfgToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -635,11 +637,16 @@ export default function App() {
             <span className="nav-icon">✦</span>星图（比赛）</button></li>
           <li><button className={nav === "bench" ? "active" : ""} onClick={() => setNav("bench")}>
             <span className="nav-icon">◈</span>Benchmark 跑分</button></li>
+          <li><button className={nav === "config" ? "active" : ""} onClick={() => setNav("config")}>
+            <span className="nav-icon">⚙</span>配置</button></li>
         </ul>
       </aside>
       <main className="content">
-        {nav === "main" ? <Overview /> : <BenchPage />}
+        {nav === "main" ? <Overview /> : nav === "bench" ? <BenchPage /> : (
+          <ConfigPage toast={(msg, kind) => setCfgToast({ msg, kind })} />
+        )}
       </main>
+      {cfgToast.msg && <Toast msg={cfgToast.msg} kind={cfgToast.kind} />}
     </div>
   )
 }

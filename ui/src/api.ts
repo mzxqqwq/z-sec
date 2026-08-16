@@ -233,6 +233,34 @@ export async function fetchAudit(runId: string): Promise<AuditReport | null> {
   return await r.json()
 }
 
+// ---- 统一配置中心 ----
+export interface ProviderInfo { id: string; label: string; base_url: string; models: string[] }
+export interface AgentConfig {
+  llm: Record<string, { model: string; thinking?: string }>
+  runtime: { max_parallel_challenges: number; planning_enabled: boolean; supervisor_enabled: boolean; kb_enabled: boolean }
+  providers: ProviderInfo[]
+  keys: Record<string, boolean>
+}
+
+export async function fetchConfig(): Promise<AgentConfig | null> {
+  const r = await fetch("/api/config")
+  if (!r.ok) return null
+  return await r.json()
+}
+
+export async function saveConfig(body: {
+  llm?: Record<string, { model: string; thinking?: string }>
+  runtime?: Record<string, unknown>
+  api_keys?: Record<string, string>
+}): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  return await r.json()
+}
+
 export async function fetchBenchHistory(): Promise<BenchRunInfo[]> {
   const r = await fetch("/api/bench/history")
   if (!r.ok) return []

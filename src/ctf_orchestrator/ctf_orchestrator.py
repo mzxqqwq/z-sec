@@ -141,8 +141,12 @@ class Orchestrator:
         self.only = only
         self._challenges: dict[str, Any] = {}  # cid -> NormalizedChallenge（内存注册表）
         try:
-            api_key = Planner.load_key_from_secrets()
-            self.planner = Planner(api_key, enabled=bool(model_config.get("planning_enabled", True)))
+            import agent_config  # 统一配置中心（config/agent.json + Web UI）
+            pcfg = agent_config.llm("planner")
+            p_model = pcfg.get("model") or "deepseek-v4-pro"
+            raw = agent_config.raw_llm(p_model)
+            self.planner = Planner(raw["api_key"], raw["base_url"], model=p_model,
+                                   enabled=bool(model_config.get("planning_enabled", True)))
         except Exception as e:
             print(f"[planner] disabled: {e}")
             self.planner = Planner("", enabled=False)
@@ -608,7 +612,12 @@ def main(argv: list[str] | None = None) -> int:
         platform = DasctfPlatform(base_url)
 
     pi_cmd = json.loads(args.pi_cmd) if args.pi_cmd else DEFAULT_PI_CMD
-    model_config = DEFAULT_MODEL_CONFIG
+    # 统一配置中心优先（config/agent.json，Web UI 可改）；--model-config 显式覆盖
+    try:
+        import agent_config
+        model_config = agent_config.build_model_config()
+    except Exception:
+        model_config = DEFAULT_MODEL_CONFIG
     if args.model_config and Path(args.model_config).exists():
         model_config = json.loads(Path(args.model_config).read_text(encoding="utf-8"))
     if args.no_planning:

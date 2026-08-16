@@ -35,6 +35,15 @@ L1_CONFIG = {
 }
 
 
+def default_model_config() -> dict:
+    """统一配置中心优先（config/agent.json，Web UI 可改）；读不到再退 L1。"""
+    try:
+        import agent_config
+        return agent_config.build_model_config()
+    except Exception:
+        return dict(L1_CONFIG)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="eval_run")
     p.add_argument("--platform", choices=["ctftiny", "cybench", "dasctf2025", "mock"],
@@ -114,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"[integrity] Kali workspace clean failed（评测继续，注意审计）: {e}")
 
-    model_config = L1_CONFIG
+    model_config = default_model_config()
     if args.config and Path(args.config).exists():
         import json as _json
         model_config = _json.loads(Path(args.config).read_text(encoding="utf-8"))
