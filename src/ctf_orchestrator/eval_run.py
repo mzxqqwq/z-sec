@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
     # 健康闸门：Kali 不可达就拒绝开跑（防止 1 小时评测白跑）——SSH 直连检查
-    if args.platform in ("ctftiny",):
+    if args.platform in ("ctftiny", "cybench"):
         from workers import kali_healthy_gate
         ok, detail = kali_healthy_gate()
         if not ok:
