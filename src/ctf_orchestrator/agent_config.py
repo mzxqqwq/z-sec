@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -122,14 +123,21 @@ def _load_secrets() -> dict[str, str]:
     return {}
 
 
+def _env_name_of(p: dict[str, Any]) -> str:
+    env = str(p.get("api_key_env") or "").strip()
+    if not env:
+        pid = str(p.get("id") or "").upper().replace("-", "_").replace(" ", "_")
+        env = f"{pid}_API_KEY"
+    return env
+
+
 def secrets_status() -> dict[str, bool]:
     """provider id → 是否已配置 key（不返回 key 本体）。"""
     have = _load_secrets()
     status: dict[str, bool] = {}
     for p in providers():
         pid = p.get("id", "")
-        env_name = p.get("api_key_env", "")
-        status[pid] = bool(have.get(pid) or os.environ.get(env_name, "").strip())
+        status[pid] = bool(have.get(pid) or os.environ.get(_env_name_of(p), "").strip())
     return status
 
 
@@ -154,7 +162,7 @@ def _apply_to_env(have: dict[str, str]) -> None:
     for p in providers():
         key = have.get(p.get("id", ""))
         if key:
-            os.environ[str(p.get("api_key_env", ""))] = key
+            os.environ[_env_name_of(p)] = key
 
 
 def apply_env() -> None:
@@ -179,12 +187,20 @@ def deepseek_api_key() -> str:
 
 
 def raw_llm(model: str) -> dict[str, str]:
-    """裸调 /chat/completions 用（planner/digest）：{base_url, api_key}。"""
+    """裸调 /chat/completions 用（planner/digest）：{base_url, api_key}。
+
+    key 解析顺序：config/secrets.json(provider id) > 环境变量(api_key_env) >
+    旧 secrets/deepseek.key（仅 deepseek provider）。
+    """
     p = provider_of(model) or {}
+    pid = p.get("id", "deepseek")
+    have = _load_secrets()
+    key = have.get(pid) or os.environ.get(str(p.get("api_key_env", "")), "").strip()
+    if not key and pid == "deepseek":
+        key = deepseek_api_key()
     return {
         "base_url": str(p.get("base_url") or "https://api.deepseek.com"),
-        "api_key": deepseek_api_key() if p.get("id") == "deepseek" or not p
-        else os.environ.get(str(p.get("api_key_env", "")), ""),
+        "api_key": key,
     }
 
 
@@ -211,6 +227,24 @@ def all_models() -> list[str]:
 def validate(partial: dict[str, Any]) -> list[str]:
     """校验 UI 提交的配置，返回错误列表（空 = 通过）。"""
     errors: list[str] = []
+    if "providers" in partial:
+        ids: set[str] = set()
+        for i, p in enumerate(partial.get("providers") or []):
+            if not isinstance(p, dict):
+                errors.append(f"providers[{i}] 必须是对象")
+                continue
+            pid = str(p.get("id") or "").strip().lower()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", pid):
+                errors.append(f"providers[{i}].id 非法（小写字母/数字/下划线/连字符）：{pid}")
+            if pid in ids:
+                errors.append(f"providers[{i}].id 重复：{pid}")
+            ids.add(pid)
+            base = str(p.get("base_url") or "").strip()
+            if not base.startswith(("http://", "https://")):
+                errors.append(f"providers[{i}].base_url 必须以 http(s):// 开头：{base}")
+            models = [str(m).strip() for m in (p.get("models") or []) if str(m).strip()]
+            if not models:
+                errors.append(f"providers[{i}] 至少需要一个模型 id")
     if "llm" in partial:
         for role, v in (partial["llm"] or {}).items():
             if not isinstance(v, dict) or not v.get("model"):
@@ -225,3 +259,98 @@ def validate(partial: dict[str, Any]) -> list[str]:
         if mp is not None and (not isinstance(mp, int) or not (1 <= mp <= 8)):
             errors.append("runtime.max_parallel_challenges 必须是 1-8 的整数")
     return errors
+
+
+# ---------- pi 模型注册表同步（中转站/新 provider 的模型要让 pi 运行时认识） ----------
+# pi-mono 内置 provider（packages/ai/src/types.ts KnownProvider）——由 pi 自带元数据管理，
+# 严禁在用户 models.json 里写同名条目（会以错误的默认元数据覆盖内置定义）。
+PI_BUILTIN_PROVIDERS = {
+    "amazon-bedrock", "ant-ling", "anthropic", "google", "google-vertex",
+    "openai", "azure-openai-responses", "openai-codex", "radius", "nvidia",
+    "deepseek", "github-copilot", "xai", "groq", "cerebras", "openrouter",
+    "vercel-ai-gateway", "zai", "zai-coding-cn", "mistral", "minimax",
+    "minimax-cn", "moonshotai", "moonshotai-cn", "huggingface", "fireworks",
+    "together", "baseten", "opencode", "opencode-go", "kimi-coding",
+    "cloudflare-workers-ai", "cloudflare-ai-gateway", "qwen-token-plan",
+    "qwen-token-plan-cn", "qwen-token-plan-individual", "xiaomi",
+    "xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp",
+}
+
+
+def pi_models_path() -> Path:
+    base = os.environ.get("PI_CODING_AGENT_DIR", "")
+    if base:
+        return Path(base) / "models.json"
+    return Path.home() / ".pi" / "agent" / "models.json"
+
+
+def _default_model_entry(model_id: str) -> dict[str, Any]:
+    """pi 注册表的兜底模型条目（用户可自行在 models.json 里细调）。"""
+    rid = model_id.lower()
+    reasoning = ("reason" in rid) or ("r1" in rid) or ("o1" in rid)
+    return {"id": model_id, "name": model_id, "reasoning": reasoning,
+            "contextWindow": 131072, "maxTokens": 16384}
+
+
+def sync_pi_models() -> tuple[bool, str]:
+    """把 agent.json 的自定义 providers 合并进 ~/.pi/agent/models.json（只增不删）。
+
+    规则：
+    - 内置 provider id（deepseek/openai/anthropic/…）跳过——pi 自带元数据，
+      写同名条目会用错误默认值覆盖内置定义；
+    - 已有自定义条目只补缺失模型、更新 baseUrl/apiKey 占位符，不覆盖用户细调。
+    返回 (changed, 说明)。
+    """
+    path = pi_models_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    reg = data.setdefault("providers", {})
+    if not isinstance(reg, dict):
+        data["providers"] = reg = {}
+    changed = False
+    skipped: list[str] = []
+    for p in providers():
+        pid = str(p.get("id") or "")
+        if not pid or pid in PI_BUILTIN_PROVIDERS:
+            if pid in PI_BUILTIN_PROVIDERS:
+                skipped.append(pid)
+            continue
+        entry = reg.get(pid)
+        if not isinstance(entry, dict):
+            entry = {"api": "openai-completions", "models": []}
+            reg[pid] = entry
+            changed = True
+        base_url = str(p.get("base_url") or "")
+        env_name = _env_name_of(p)
+        if entry.get("baseUrl") != base_url:
+            entry["baseUrl"] = base_url
+            changed = True
+        if entry.get("apiKey") != f"${env_name}":
+            entry["apiKey"] = f"${env_name}"
+            changed = True
+        entry.setdefault("api", "openai-completions")
+        models = entry.setdefault("models", [])
+        if not isinstance(models, list):
+            models = []
+            entry["models"] = models
+        known = {m.get("id") for m in models if isinstance(m, dict)}
+        for mid in (p.get("models") or []):
+            mid = str(mid).strip()
+            if mid and mid not in known:
+                models.append(_default_model_entry(mid))
+                known.add(mid)
+                changed = True
+    if changed:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+        note = f"已同步 pi 模型注册表（{path}）"
+        if skipped:
+            note += f"；跳过内置 provider：{','.join(skipped)}"
+        return True, note
+    return False, "pi 模型注册表无需更新"

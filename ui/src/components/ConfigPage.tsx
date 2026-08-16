@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { fetchConfig, saveConfig } from "../api"
-import type { AgentConfig } from "../api"
+import type { AgentConfig, ProviderInfo } from "../api"
 import GlassCard from "./GlassCard"
 
 const THINKING_LABEL: Record<string, string> = { low: "低", medium: "中", high: "高" }
@@ -11,6 +11,7 @@ const ROLE_LABEL: Record<string, string> = {
   observer: "Supervisor（看板维护）",
   digest: "digest（日志摘要）",
 }
+const newProvider = (): ProviderInfo => ({ id: "", label: "", base_url: "", models: [] })
 
 export default function ConfigPage({ toast }: {
   toast: (msg: string, kind?: "ok" | "err") => void
@@ -27,7 +28,14 @@ export default function ConfigPage({ toast }: {
 
   if (!cfg) return <p className="muted">加载配置中…</p>
 
-  const allModels = cfg.providers.flatMap((p) => p.models)
+  const patchProvider = (idx: number, field: keyof ProviderInfo, value: string) => {
+    const providers = cfg.providers.map((p, i) =>
+      i === idx ? { ...p, [field]: field === "models" ? value.split(",").map((s) => s.trim()).filter(Boolean) : value } : p)
+    setCfg({ ...cfg, providers })
+  }
+  const removeProvider = (idx: number) => setCfg({ ...cfg, providers: cfg.providers.filter((_, i) => i !== idx) })
+  const addProvider = () => setCfg({ ...cfg, providers: [...cfg.providers, newProvider()] })
+
   const patchLlm = (role: string, field: "model" | "thinking", value: string) => {
     const llm = { ...cfg.llm, [role]: { ...(cfg.llm[role] ?? {}), [field]: value } }
     setCfg({ ...cfg, llm })
@@ -38,6 +46,7 @@ export default function ConfigPage({ toast }: {
     const body: Parameters<typeof saveConfig>[0] = {
       llm: cfg.llm,
       runtime: cfg.runtime,
+      providers: cfg.providers,
       api_keys: Object.fromEntries(Object.entries(keys).filter(([, v]) => v.trim() !== "")),
     }
     const r = await saveConfig(body)
@@ -55,14 +64,45 @@ export default function ConfigPage({ toast }: {
         </span>
       </div>
 
+      <GlassCard title="Providers（API 中转站/自定义端点都加在这里）">
+        {cfg.providers.map((p, idx) => (
+          <div key={idx} className="pending-row" style={{ marginBottom: 10, alignItems: "flex-start" }}>
+            <span style={{ width: 90 }}>
+              <input placeholder="id" value={p.id} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
+                onChange={(e) => patchProvider(idx, "id", e.target.value.toLowerCase())} />
+            </span>
+            <span style={{ width: 110 }}>
+              <input placeholder="label" value={p.label} style={{ width: "100%" }}
+                onChange={(e) => patchProvider(idx, "label", e.target.value)} />
+            </span>
+            <span style={{ flex: 1 }}>
+              <input placeholder="https://你的中转站/v1" value={p.base_url} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
+                onChange={(e) => patchProvider(idx, "base_url", e.target.value)} />
+            </span>
+            <span style={{ flex: 1.4 }}>
+              <input placeholder="模型 id，逗号分隔（如 gpt-4o, claude-sonnet-4）"
+                value={p.models.join(", ")} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
+                onChange={(e) => patchProvider(idx, "models", e.target.value)} />
+            </span>
+            <button className="btn btn-sm" onClick={() => removeProvider(idx)} title="删除该 provider">✕</button>
+          </div>
+        ))}
+        <button className="btn btn-sm" onClick={addProvider}>＋ 新增 Provider</button>
+        <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+          自定义中转站请用<b>自定义 id</b>（如 myrelay），保存时自动合并进 pi 模型注册表
+          （%USERPROFILE%\.pi\agent\models.json），其模型立即可在下方「角色模型」里选择。
+          deepseek/openai/anthropic 等内置 id 由 pi 运行时自带元数据管理，不会写入注册表。
+        </p>
+      </GlassCard>
+
       <GlassCard title="API Key（provider 密钥）">
-        {cfg.providers.map((p) => (
+        {cfg.providers.filter((p) => p.id).map((p) => (
           <div key={p.id} className="pending-row" style={{ marginBottom: 10 }}>
-            <span style={{ width: 130 }}><b>{p.label}</b><br />
-              <span className="muted" style={{ fontSize: 11 }}>{p.base_url}</span></span>
+            <span style={{ width: 140 }}><b>{p.label || p.id}</b><br />
+              <span className="muted" style={{ fontSize: 11 }}>{p.base_url || "(未设 url)"}</span></span>
             <span style={{ flex: 1 }}>
               <input type="password"
-                placeholder={cfg.keys[p.id] ? "已设置（留空保持不变）" : `未设置（环境变量/legacy 兜底）`}
+                placeholder={cfg.keys[p.id] ? "已设置（留空保持不变）" : "未设置"}
                 value={keys[p.id] ?? ""}
                 onChange={(e) => setKeys({ ...keys, [p.id]: e.target.value })}
                 style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
@@ -71,21 +111,28 @@ export default function ConfigPage({ toast }: {
               title={cfg.keys[p.id] ? "已配置" : "未配置"} />
           </div>
         ))}
+        {cfg.providers.filter((p) => p.id).length === 0 && (
+          <p className="muted">先在上面添加至少一个带 id 的 provider。</p>
+        )}
         <p className="muted" style={{ fontSize: 11 }}>
           保存后立即写入 secrets.json 并注入当前进程环境；新开 worker/评测进程自动继承。
-          模型注册表（%USERPROFILE%\.pi\agent\models.json）仍是 pi 运行时所需的另一份配置，见 docs/INSTALL.md。
         </p>
       </GlassCard>
 
       <GlassCard title="角色模型（strong/weak/planner/observer/digest）">
         {Object.entries(ROLE_LABEL).map(([role, label]) => {
-          const v = cfg.llm[role] ?? { model: allModels[0] }
+          const v = cfg.llm[role] ?? { model: "" }
           return (
             <div key={role} className="pending-row" style={{ marginBottom: 10 }}>
               <span style={{ width: 200 }}>{label}</span>
               <select value={v.model} style={{ flex: 1, marginRight: 8 }}
                 onChange={(e) => patchLlm(role, "model", e.target.value)}>
-                {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                <option value="" disabled>选择模型…</option>
+                {cfg.providers.filter((p) => p.id).map((p) => (
+                  <optgroup key={p.id} label={`${p.label || p.id}（${p.base_url}）`}>
+                    {p.models.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </optgroup>
+                ))}
               </select>
               {(role === "strong" || role === "weak" || role === "observer") && (
                 <select value={v.thinking ?? "medium"} style={{ width: 90 }}

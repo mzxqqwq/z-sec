@@ -472,6 +472,8 @@ def api_config_post():
         partial["llm"] = body["llm"]
     if isinstance(body.get("runtime"), dict):
         partial["runtime"] = body["runtime"]
+    if isinstance(body.get("providers"), list):
+        partial["providers"] = body["providers"]
     if partial:
         agent_config.save(partial)
     keys = body.get("api_keys")
@@ -479,7 +481,16 @@ def api_config_post():
         agent_config.set_secrets(keys)
     else:
         agent_config.apply_env()  # 至少刷新当前进程环境（供 digest 等使用）
-    return jsonify({"ok": True, "msg": "配置已保存", "keys": agent_config.secrets_status()})
+    # providers/模型变化时，把新 provider 合并进 pi 模型注册表（worker 才认识新模型）
+    sync_msg = ""
+    try:
+        synced, sync_msg = agent_config.sync_pi_models()
+    except Exception as e:
+        sync_msg = f"pi 模型注册表同步失败：{e}"
+    msg = "配置已保存"
+    if sync_msg:
+        msg += f"；{sync_msg}"
+    return jsonify({"ok": True, "msg": msg, "keys": agent_config.secrets_status()})
 
 
 @app.get("/api/bench/status")

@@ -251,6 +251,7 @@ export async function fetchConfig(): Promise<AgentConfig | null> {
 export async function saveConfig(body: {
   llm?: Record<string, { model: string; thinking?: string }>
   runtime?: Record<string, unknown>
+  providers?: ProviderInfo[]
   api_keys?: Record<string, string>
 }): Promise<{ ok: boolean; msg: string }> {
   const r = await fetch("/api/config", {
