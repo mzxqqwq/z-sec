@@ -60,13 +60,16 @@ class CybenchPlatform(BasePlatform):
                  categories: Optional[list[str]] = None,
                  exclude: Optional[list[str]] = None,
                  max_files_mb: float = 20.0,
-                 skip_services: bool = True) -> None:
+                 skip_services: bool = True,
+                 revive: bool = True) -> None:
         self.root = Path(root)
         self.categories = categories
         self.exclude = set(exclude or [])
         self.max_files_mb = max_files_mb
         self.skip_services = skip_services
+        self.revive = revive  # 服务题构建流水线（cybuild）开关，默认开
         self._entries: dict[str, dict[str, Any]] = {}
+        self._revived: dict[str, int] = {}  # cid -> Kali 本地端口
         self._load()
 
     def _load(self) -> None:
@@ -117,7 +120,8 @@ class CybenchPlatform(BasePlatform):
 
     def _task_files(self, rel: Path) -> list[str]:
         """任务下发给选手的文件清单（相对路径）：
-        除 metadata/solution/*.sh/README* 外全部给——兼容 dist/ 与 challenge/ 两种布局。"""
+        除 metadata/solution/*.sh/README*/flag* 外全部给——flag 文件是构建材料/真值，
+        绝不下发（服务题由容器承载，静态题的真值在 metadata，2026-08-16 完整性收紧）。"""
         task_root = self.root / rel
         out: list[str] = []
         for f in sorted(task_root.rglob("*")):
@@ -127,6 +131,8 @@ class CybenchPlatform(BasePlatform):
             if any(p in EXCLUDE_NAMES for p in rel_parts):
                 continue
             if f.suffix == ".sh" or f.name.startswith("README"):
+                continue
+            if f.name.lower().startswith("flag"):
                 continue
             out.append("/".join(rel_parts))
         return out
@@ -142,6 +148,24 @@ class CybenchPlatform(BasePlatform):
                 continue
             if self.skip_services and ch.target_kind == "remote":
                 continue
+            # 服务题本地构建流水线（cybuild）：构建+起容器，覆盖连接点为 127.0.0.1
+            if ch.target_kind == "remote" and self.revive:
+                try:
+                    import cybuild
+                    ok, hp, err = cybuild.build_and_run(
+                        ch.challenge_id, self.root / entry["rel"],
+                        str(meta.get("target_host") or ""))
+                except Exception as e:
+                    ok, hp, err = False, None, f"cybuild 异常: {e}"
+                if ok and hp:
+                    ch.host, ch.port = "127.0.0.1", int(hp)
+                    ch.raw["liveness"] = "alive"
+                    ch.raw["revived"] = True
+                    self._revived[ch.challenge_id] = int(hp)
+                    print(f"[cybuild] {ch.challenge_id} -> 127.0.0.1:{hp}")
+                else:
+                    ch.raw["liveness"] = "dead"
+                    print(f"[cybuild] {ch.challenge_id} 失败: {err}")
             out.append(ch)
         return out
 

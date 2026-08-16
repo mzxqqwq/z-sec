@@ -42,7 +42,7 @@ BENCH_DEFS: dict[str, dict[str, Any]] = {
     },
     "cybench": {
         "name": "Cybench",
-        "desc": "40 题专业级（4 赛事）；静态 19 题可跑，服务题待容器",
+        "desc": "40 题专业级（4 赛事）；静态 19 题 + 服务题构建流水线（cybuild，默认开启）",
         "meta": None,
         "args": ["--platform", "cybench"],
     },

@@ -86,7 +86,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.platform == "cybench":
         platform = CybenchPlatform(
             categories=categories,
-            exclude=[c.strip() for c in args.exclude.split(",") if c.strip()] or None)
+            exclude=[c.strip() for c in args.exclude.split(",") if c.strip()] or None,
+            skip_services=False,
+            revive=not args.no_revive)
     elif args.platform == "dasctf2025":
         platform = DasctfEvalPlatform()
     else:
