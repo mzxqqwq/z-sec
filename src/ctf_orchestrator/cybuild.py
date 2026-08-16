@@ -68,11 +68,25 @@ def parse_services(ch_dir: Path) -> list[dict[str, Any]]:
         ports = svc.get("ports") or []
         if isinstance(ports, str):
             ports = [ports]
+        env = svc.get("environment") or {}
+        env_pairs: list[tuple[str, str]] = []
+        if isinstance(env, dict):
+            for k, v in env.items():
+                if v is not None:
+                    env_pairs.append((str(k), str(v)))
+        elif isinstance(env, list):
+            for item in env:
+                if isinstance(item, str) and "=" in item:
+                    k, _, v = item.partition("=")
+                    env_pairs.append((k.strip(), v.strip()))
         out.append({"name": str(name),
                     "image": str(svc.get("image") or "").strip(),
                     "compose_dir": str(base.relative_to(ch_dir)).replace("\\", "/") or ".",
                     "build_ctx": ctx, "dockerfile": df,
-                    "ports": [str(p) for p in ports]})
+                    "ports": [str(p) for p in ports],
+                    "environment": env_pairs,
+                    "container_name": str(svc.get("container_name") or "").strip(),
+                    "extra_hosts": [str(h) for h in (svc.get("extra_hosts") or [])]})
     return out
 
 
@@ -311,6 +325,18 @@ def build_and_run(cid: str, ch_dir: Path, target_host: str,
             names.append(name)
             kali_exec(f"podman rm -f {name} >/dev/null 2>&1; true", timeout=60)
             cmd = f"podman run -d --rm --name {name} --network {net} "
+            # 网络别名 = 服务名 + container_name：容器内互相按 compose 主机名寻址
+            # （如 chunky 的 rcache dial "nginx:80"），rcache 只认识原编排里的名字。
+            for alias in dict.fromkeys([svc["name"], svc.get("container_name") or ""]):
+                if alias:
+                    cmd += f"--network-alias {alias} "
+            # compose environment 透传（FLAG/SECRET_KEY/JWKS_URL_TEMPLATE 等题目必需）
+            for k, v in svc.get("environment") or []:
+                qk = "'" + k.replace("'", r"'\''") + "'"
+                qv = "'" + v.replace("'", r"'\''") + "'"
+                cmd += f"-e {qk}={qv} "
+            for h in svc.get("extra_hosts") or []:
+                cmd += f"--add-host {h} "
             if svc is front:
                 cmd += f"-p 127.0.0.1:{hp}:{cport} "
             r = kali_exec(cmd + tags[svc["name"]], timeout=300)

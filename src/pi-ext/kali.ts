@@ -429,9 +429,10 @@ export default function (pi: ExtensionAPI) {
 	// ---------- benchmark 网络封锁（2026-08-17） ----------
 	// benchmark 题公开可搜，联网=开卷抄解；比赛题搜不到。编排器在 benchmark 模式下
 	// 给 worker 注入 NET_POLICY=local-only，bash 工具在执行前拦截一切外联动作：
-	// curl/wget/git/pip/npm/ssh/dns 全拒；nc/ncat/socat 只允许 127.0.0.1/localhost
-	// （本地复活的靶机照常可连）。read/write/edit 不涉及网络，不受影响。
-	const NET_BLOCK_RE = /\b(curl|wget|git\s+(clone|ls-remote|fetch|pull)|pip(3)?\s+(install|download)|npm(\s|$)|npx|ssh\b|scp\b|telnet\b|aria2c\b|nslookup\b|dig\b|getent\s+hosts)\b/i;
+	// curl/wget/git/pip/npm/apt/go/cargo/podman/docker/ssh/dns 全拒；nc/ncat/socat
+	// 只允许 127.0.0.1/localhost（本地复活的靶机照常可连）。read/write/edit 不涉及
+	// 网络，不受影响。
+	const NET_BLOCK_RE = /\b(curl|wget|git\s+(clone|ls-remote|fetch|pull)|pip(3)?\s+(install|download)|npm(\s|$)|npx|ssh\b|scp\b|telnet\b|aria2c\b|nslookup\b|dig\b|getent\s+hosts|apt(-get)?\b|apk\s+add|brew\b|cargo\b|gem\s+install|go\s+(get|install|mod)|cpan\b|podman\b|docker\b|ctr\b|nerdctl\b|containerd\b)\b/i;
 	const PY_NET_RE = /python3?\b.*\b(urllib|requests|socket|http\.client)\b/i;
 	const LOCAL_NET_RE = /\b(nc|ncat|netcat|socat)\b/i;
 

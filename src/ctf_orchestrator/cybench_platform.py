@@ -140,6 +140,20 @@ class CybenchPlatform(BasePlatform):
 
     def list_challenges(self) -> list[NormalizedChallenge]:
         out: list[NormalizedChallenge] = []
+        # 已复活题目的存活快照（并行探测，避免逐题 6s 超时拖慢每轮 sync）
+        from concurrent.futures import ThreadPoolExecutor
+        revived_cids = [k for k, v in self._revived.items() if v]
+        alive: dict[str, bool] = {}
+        if revived_cids:
+            def _probe(cid: str) -> tuple[str, bool]:
+                from eval_platform import probe_host
+                try:
+                    return cid, probe_host("127.0.0.1", int(self._revived[cid]))
+                except Exception:
+                    return cid, False
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                for cid, ok in pool.map(_probe, revived_cids):
+                    alive[cid] = ok
         for key, entry in self._entries.items():
             meta = entry["meta"]
             ch = self._normalized(key, meta, entry["rel"])
@@ -149,24 +163,32 @@ class CybenchPlatform(BasePlatform):
                 continue
             if self.skip_services and ch.target_kind == "remote":
                 continue
-            # 服务题本地构建流水线（cybuild）：构建+起容器，覆盖连接点为 127.0.0.1
+            # 服务题本地构建流水线（cybuild）：构建+起容器，覆盖连接点为 127.0.0.1。
+            # 已复活且仍存活 → 复用端点（不重建）；死了 → 重建（每轮 sync 自愈）。
             if ch.target_kind == "remote" and self.revive:
-                try:
-                    import cybuild
-                    ok, hp, err = cybuild.build_and_run(
-                        ch.challenge_id, self.root / entry["rel"],
-                        str(meta.get("target_host") or ""))
-                except Exception as e:
-                    ok, hp, err = False, None, f"cybuild 异常: {e}"
-                if ok and hp:
+                hp = self._revived.get(ch.challenge_id)
+                if hp and alive.get(ch.challenge_id):
                     ch.host, ch.port = "127.0.0.1", int(hp)
                     ch.raw["liveness"] = "alive"
                     ch.raw["revived"] = True
-                    self._revived[ch.challenge_id] = int(hp)
-                    print(f"[cybuild] {ch.challenge_id} -> 127.0.0.1:{hp}")
+                    print(f"[cybuild] {ch.challenge_id} 复用 127.0.0.1:{hp}")
                 else:
-                    ch.raw["liveness"] = "dead"
-                    print(f"[cybuild] {ch.challenge_id} 失败: {err}")
+                    try:
+                        import cybuild
+                        ok, hp, err = cybuild.build_and_run(
+                            ch.challenge_id, self.root / entry["rel"],
+                            str(meta.get("target_host") or ""))
+                    except Exception as e:
+                        ok, hp, err = False, None, f"cybuild 异常: {e}"
+                    if ok and hp:
+                        ch.host, ch.port = "127.0.0.1", int(hp)
+                        ch.raw["liveness"] = "alive"
+                        ch.raw["revived"] = True
+                        self._revived[ch.challenge_id] = int(hp)
+                        print(f"[cybuild] {ch.challenge_id} -> 127.0.0.1:{hp}")
+                    else:
+                        ch.raw["liveness"] = "dead"
+                        print(f"[cybuild] {ch.challenge_id} 失败: {err}")
             out.append(ch)
         return out
 
