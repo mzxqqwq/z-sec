@@ -117,12 +117,13 @@ APT_FIX_LINE = (
 )
 
 # 仅这些 EOL 基础镜像才注入（focal 2026-08-16 实测仍在 archive.ubuntu.com 全量可用，
-# 注入 old-releases 反而 404；22.04 等未 EOL 的源仍然可用，注入同样会 404）
+# 注入 old-releases 反而 404；maven:3.8.5-openjdk-11(-slim) 实际是 bullseye 底，
+# bullseye 至今仍在 deb.debian.org/security.debian.org 活着，注入 archive 反而
+# 404（archive.debian.org/debian-security 没有 bullseye-security），已移除）
 EOL_BASE_RE = re.compile(
     r"ubuntu:(1[468]\.04)|"
     r"debian:(9|10|stretch|buster)|"
-    r"python:[0-9.]+-slim-(stretch|buster)|python:(2|3)\.(7|8|9)-(stretch|buster)|"
-    r"maven:3\.8\.5-openjdk-11",  # maven 老镜像基于 debian buster
+    r"python:[0-9.]+-slim-(stretch|buster)|python:(2|3)\.(7|8|9)-(stretch|buster)",
     re.I)
 
 
@@ -321,7 +322,11 @@ def build_and_run(cid: str, ch_dir: Path, target_host: str,
         if not hp:
             raise RuntimeError("无空闲端口")
         for svc in services:
-            name = f"{safe_cid}-{svc['name']}".lower()[:40]
+            # 容器名必须带服务名后缀（截断到 40 会把 blog/nginx/cache 截成同一个名字，
+            # 后起的 rm -f 干掉前一个 → 只剩前置服务，探测无响应——chunky 实测教训）
+            name = f"{safe_cid}-{svc['name']}".lower()
+            if len(name) > 200:
+                name = name[:200]
             names.append(name)
             kali_exec(f"podman rm -f {name} >/dev/null 2>&1; true", timeout=60)
             cmd = f"podman run -d --rm --name {name} --network {net} "
