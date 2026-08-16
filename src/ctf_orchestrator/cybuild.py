@@ -102,9 +102,10 @@ APT_FIX_LINE = (
     "/etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; true"
 )
 
-# 仅这些 EOL 基础镜像才注入（22.04 等未 EOL 的源仍然可用，注入反而会 404）
+# 仅这些 EOL 基础镜像才注入（focal 2026-08-16 实测仍在 archive.ubuntu.com 全量可用，
+# 注入 old-releases 反而 404；22.04 等未 EOL 的源仍然可用，注入同样会 404）
 EOL_BASE_RE = re.compile(
-    r"ubuntu:(1[468]\.04|20\.04)|"
+    r"ubuntu:(1[468]\.04)|"
     r"debian:(9|10|stretch|buster)|"
     r"python:[0-9.]+-slim-(stretch|buster)|python:(2|3)\.(7|8|9)-(stretch|buster)|"
     r"maven:3\.8\.5-openjdk-11",  # maven 老镜像基于 debian buster
@@ -141,9 +142,14 @@ def _patch_dockerfile(text: str) -> str:
             if EOL_BASE_RE.search(line) and APT_FIX_LINE not in text:
                 out.append(APT_FIX_LINE)
         else:
-            if (upper.startswith("RUN") and re.search(r"\badd(user|group)\b", line)
-                    and "|| true" not in line):
-                line = line.rstrip() + " || true"
+            if upper.startswith("RUN") and re.search(r"\badd(user|group)\b", line):
+                # 固定 uid/gid 常与新基础镜像冲突（如 eclipse-temurin 的 ubuntu 用户已占
+                # uid/gid 1000）→ 去掉数字约束走自动分配；addgroup 与 adduser 之间的
+                # && 改 ; 防短路（组已存在时 addgroup 失败不应阻断建用户）。
+                line = re.sub(r"\s--(?:gid|uid)\s+\d+", "", line)
+                line = re.sub(r"(addgroup\b[^&\n]*?)\s*&&(?=[^&\n]*adduser)", r"\1;", line)
+                if "|| true" not in line:
+                    line = line.rstrip() + " || true"
             # 老发行版源码行（buster/stretch，如 pickle-jail 的 amd64.list）改 archive.debian.org
             if re.search(r"\b(buster|stretch)\b", line) and "debian.org" in line:
                 line = (line.replace("deb.debian.org", "archive.debian.org")

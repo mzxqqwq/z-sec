@@ -76,12 +76,13 @@ def probe_host(host: str, port: int, timeout: int = 6) -> bool:
     try:
         from workers import kali_exec
         # 连接 + 发探测载荷 + 收响应；timeout 保证总时长可控。
-        # 载荷 = 换行 + 最小 HTTP 请求行：nc/socat 类服务对任意输入都会回提示，
-        # HTTP 类服务对请求行必回状态码——两类都必然产生字节（2026-08-16 实测：
-        # 只发换行时 nginx 类服务会一直等请求行而不回应，造成误判）。
+        # 载荷 = 最小 HTTP 请求行（NO 前导换行！）：nc/socat 类服务对任意字节都会回提示，
+        # HTTP 类服务对请求行必回状态码——两类都必然产生字节。前导 "\n" 会被 werkzeug
+        # (BaseHTTPRequestHandler) 当作空请求行 → 直接关连接零字节（Flag Command / Path of
+        # Survival 探活假死，2026-08-16 实测）；nginx 类服务对无前导换行的请求行也正常回应。
         cmd = (f"timeout {timeout + 8} bash -c '"
                f"exec 3<>/dev/tcp/{host}/{port} 2>/dev/null || exit 1; "
-               f"printf \"\\\\nGET / HTTP/1.0\\\\r\\\\n\\\\r\\\\n\" >&3; "
+               f"printf \"GET / HTTP/1.0\\r\\n\\r\\n\" >&3; "
                f"timeout {timeout} head -c 64 <&3'")
         out = kali_exec(cmd, timeout=timeout + 14)
         return bool((out.get("stdout") or "").strip())
