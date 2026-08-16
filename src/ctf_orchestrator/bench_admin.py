@@ -367,9 +367,9 @@ def _effective_running_pid() -> int:
 
 def _build_cmd(bench_id: str, filters: dict[str, Any]) -> list[str]:
     d = BENCH_DEFS[bench_id]
+    # 不传 --config：eval_run 默认走统一配置中心（config/agent.json，Web UI 可改）
     cmd = [sys.executable, "-u", "-X", "utf8", str(EVAL_RUN),
-           *d["args"], "--workspace", str(BENCH_WS),
-           "--config", str(L2_CONFIG)]
+           *d["args"], "--workspace", str(BENCH_WS)]
     # 服务题容器运行默认开启（eval_run 默认起容器当靶机），无需额外开关
     for k in ("difficulty", "categories", "only", "exclude"):
         if filters.get(k):
