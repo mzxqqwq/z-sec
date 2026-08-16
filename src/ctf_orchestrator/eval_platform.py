@@ -117,7 +117,7 @@ class CtftinyPlatform(BasePlatform):
                  categories: Optional[list[str]] = None,
                  exclude: Optional[list[str]] = None,
                  max_files_mb: float = 20.0,
-                 revive: bool = False) -> None:
+                 revive: bool = True) -> None:
         self.kali_url = kali_url.rstrip("/")  # 保留：worker 运行时健康检查等仍用它
         self.root = Path(root)
         self.meta_files = meta_files  # 元数据文件（ctftiny.json 或 test_dataset.json 等，可多个合并）
@@ -125,7 +125,7 @@ class CtftinyPlatform(BasePlatform):
         self.categories = categories      # None = 全部
         self.exclude = set(exclude or [])
         self.max_files_mb = max_files_mb
-        self.revive = revive  # True = 靶机已停的服务题尝试用 Kali podman 本地复活
+        self.revive = revive  # 默认 True：dead 服务题自动用 Kali podman 起容器当靶机（--no-revive 关闭）
         self._meta: dict[str, dict[str, Any]] = {}
         self._details: dict[str, dict[str, Any]] = {}
         self._dir_cache: dict[str, str] = {}
@@ -253,8 +253,8 @@ class CtftinyPlatform(BasePlatform):
 
     def list_challenges(self) -> list[NormalizedChallenge]:
         out: list[NormalizedChallenge] = []
-        # 服务题存活探测只作复活触发器：revive 开启时并发探测 dead 题并尝试 podman 复活；
-        # 不开 revive 时不做任何探测（探测/徽标/成绩单排除已随复活功能下线，2026-08-17）
+        # 服务题存活探测是容器运行的触发器：默认开启，并发探测 dead 题并尝试 podman 起容器；
+        # --no-revive 关闭时不做任何探测（旧的探测徽标/成绩单排除功能已下线，2026-08-17）
         from concurrent.futures import ThreadPoolExecutor
         to_probe = []
         if self.revive:

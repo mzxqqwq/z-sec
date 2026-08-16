@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import threading
@@ -331,9 +330,7 @@ def _build_cmd(bench_id: str, filters: dict[str, Any]) -> list[str]:
     cmd = [sys.executable, "-X", "utf8", str(EVAL_RUN),
            *d["args"], "--workspace", str(BENCH_WS),
            "--config", str(L2_CONFIG)]
-    # 服务题本地复活开关：CTF_REVIVE=1 时对 dead 服务题用 Kali podman 起容器
-    if os.environ.get("CTF_REVIVE") == "1":
-        cmd.append("--revive")
+    # 服务题容器运行默认开启（eval_run 默认起容器当靶机），无需额外开关
     for k in ("difficulty", "categories", "only", "exclude"):
         if filters.get(k):
             cmd += [f"--{k}", str(filters[k])]

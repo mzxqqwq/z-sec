@@ -54,8 +54,9 @@ def main(argv: list[str] | None = None) -> int:
                         "NYU 全量用 D:/ctf-agent/benchmarks/nyu-ctf-bench）")
     p.add_argument("--bench-meta", default="",
                    help="题库元数据文件名，逗号分隔（默认 ctftiny.json；NYU 用 test_dataset.json）")
-    p.add_argument("--revive", action="store_true",
-                   help="dead 服务题用 Kali podman 起容器当靶机（需先拉镜像，见 docs/服务题容器运行.md）")
+    p.add_argument("--no-revive", action="store_true",
+                   help="关闭服务题容器运行（默认开启：dead 题自动用 Kali podman 起容器当靶机，"
+                        "跑分前把镜像拉好即可，缺镜像的题自动跳过）")
     args = p.parse_args(argv)
 
     difficulties = [d.strip() for d in args.difficulty.split(",") if d.strip()] or None
@@ -70,8 +71,7 @@ def main(argv: list[str] | None = None) -> int:
             kwargs["root"] = args.bench_root
         if args.bench_meta:
             kwargs["meta_files"] = tuple(m.strip() for m in args.bench_meta.split(",") if m.strip())
-        if args.revive:
-            kwargs["revive"] = True
+        kwargs["revive"] = not args.no_revive  # 默认开启，--no-revive 关闭
         platform = CtftinyPlatform(**kwargs)
     elif args.platform == "cybench":
         platform = CybenchPlatform(
