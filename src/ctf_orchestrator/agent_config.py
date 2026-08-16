@@ -285,7 +285,18 @@ def pi_models_path() -> Path:
 
 
 def _default_model_entry(model_id: str) -> dict[str, Any]:
-    """pi 注册表的兜底模型条目（用户可自行在 models.json 里细调）。"""
+    """pi 注册表的兜底模型条目：优先用 cc-switch 移植目录的真实元数据，
+    目录没有的才按名字猜 reasoning 并给通用窗口。"""
+    try:
+        from provider_presets import catalog_meta
+        meta = catalog_meta(model_id)
+        if meta:
+            return {"id": model_id, "name": meta.get("name", model_id),
+                    "reasoning": bool(meta.get("reasoning")),
+                    "contextWindow": int(meta.get("contextWindow") or 131072),
+                    "maxTokens": int(meta.get("maxTokens") or 16384)}
+    except Exception:
+        pass
     rid = model_id.lower()
     reasoning = ("reason" in rid) or ("r1" in rid) or ("o1" in rid)
     return {"id": model_id, "name": model_id, "reasoning": reasoning,

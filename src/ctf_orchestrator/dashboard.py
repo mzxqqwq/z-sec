@@ -450,6 +450,7 @@ def api_bench_audit(run_id: str):
 def api_config_get():
     import agent_config
     cfg = agent_config.load()
+    import provider_presets
     return jsonify({
         "llm": cfg.get("llm"),
         "runtime": cfg.get("runtime"),
@@ -457,6 +458,9 @@ def api_config_get():
                        "base_url": p.get("base_url"), "models": p.get("models")}
                       for p in cfg.get("providers") or []],
         "keys": agent_config.secrets_status(),
+        # cc-switch 移植：模型元数据目录 + 中转站预设（供「从预设添加」「一键应用到角色」）
+        "catalog": provider_presets.MODEL_CATALOG,
+        "presets": provider_presets.GATEWAY_PRESETS,
     })
 
 

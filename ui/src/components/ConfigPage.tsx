@@ -41,6 +41,44 @@ export default function ConfigPage({ toast }: {
     setCfg({ ...cfg, llm })
   }
 
+  // ---- cc-switch 移植：预设添加 + 一键应用到角色 ----
+  const metaOf = (mid: string) => {
+    if (!mid) return null
+    if (cfg.catalog[mid]) return cfg.catalog[mid]
+    const hit = Object.entries(cfg.catalog).find(([k]) => k.endsWith("/" + mid))
+    return hit ? hit[1] : null
+  }
+  const uniqueId = (base: string) => {
+    let id = base, n = 2
+    while (cfg.providers.some((p) => p.id === id)) id = `${base}-${n++}`
+    return id
+  }
+  const addPreset = (preset: { id: string; name: string; base_url: string; models: string[] }) => {
+    setCfg({
+      ...cfg,
+      providers: [...cfg.providers,
+      { id: uniqueId(preset.id), label: preset.name, base_url: preset.base_url, models: preset.models }],
+    })
+  }
+  const applyRoles = (models: string[]) => {
+    const mids = models.filter(Boolean)
+    if (mids.length === 0) { toast("该 provider 没有模型，先填写模型列表", "err"); return }
+    const reasoning = mids.filter((m) => metaOf(m)?.reasoning)
+    const heavy = reasoning[0] ?? mids[0]
+    setCfg({
+      ...cfg,
+      llm: {
+        ...cfg.llm,
+        strong: { ...cfg.llm.strong, model: heavy },
+        weak: { ...cfg.llm.weak, model: mids[0] },
+        planner: { ...cfg.llm.planner, model: heavy },
+        observer: { ...cfg.llm.observer, model: heavy },
+        digest: { ...cfg.llm.digest, model: mids[0] },
+      },
+    })
+    toast(`已应用：strong/planner/observer → ${heavy}，weak/digest → ${mids[0]}`, "ok")
+  }
+
   const save = async () => {
     setSaving(true)
     const body: Parameters<typeof saveConfig>[0] = {
@@ -65,6 +103,13 @@ export default function ConfigPage({ toast }: {
       </div>
 
       <GlassCard title="Providers（API 中转站/自定义端点都加在这里）">
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="muted" style={{ fontSize: 12 }}>从预设添加：</span>
+          {cfg.presets.map((p) => (
+            <button key={p.id} className="btn btn-sm" onClick={() => addPreset(p)}>
+              ＋ {p.name}</button>
+          ))}
+        </div>
         {cfg.providers.map((p, idx) => (
           <div key={idx} className="pending-row" style={{ marginBottom: 10, alignItems: "flex-start" }}>
             <span style={{ width: 90 }}>
@@ -80,14 +125,16 @@ export default function ConfigPage({ toast }: {
                 onChange={(e) => patchProvider(idx, "base_url", e.target.value)} />
             </span>
             <span style={{ flex: 1.4 }}>
-              <input placeholder="模型 id，逗号分隔（如 gpt-4o, claude-sonnet-4）"
+              <input placeholder="模型 id，逗号分隔（如 gpt-5.2, claude-sonnet-4.6）"
                 value={p.models.join(", ")} style={{ width: "100%", fontFamily: "var(--font-mono)" }}
                 onChange={(e) => patchProvider(idx, "models", e.target.value)} />
             </span>
+            <button className="btn btn-sm" onClick={() => applyRoles(p.models)}
+              title="按该 provider 的模型给五个角色分配合适模型（reasoning 模型给 strong）">应用到角色</button>
             <button className="btn btn-sm" onClick={() => removeProvider(idx)} title="删除该 provider">✕</button>
           </div>
         ))}
-        <button className="btn btn-sm" onClick={addProvider}>＋ 新增 Provider</button>
+        <button className="btn btn-sm" onClick={addProvider}>＋ 新增空白 Provider</button>
         <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>
           自定义中转站请用<b>自定义 id</b>（如 myrelay），保存时自动合并进 pi 模型注册表
           （%USERPROFILE%\.pi\agent\models.json），其模型立即可在下方「角色模型」里选择。

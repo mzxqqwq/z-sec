@@ -240,6 +240,8 @@ export interface AgentConfig {
   runtime: { max_parallel_challenges: number; planning_enabled: boolean; supervisor_enabled: boolean; kb_enabled: boolean }
   providers: ProviderInfo[]
   keys: Record<string, boolean>
+  catalog: Record<string, { name: string; reasoning: boolean; contextWindow: number; maxTokens: number }>
+  presets: { id: string; name: string; base_url: string; models: string[] }[]
 }
 
 export async function fetchConfig(): Promise<AgentConfig | null> {
