@@ -208,9 +208,19 @@ class Orchestrator:
         for ch in self.platform.list_challenges():
             cid = ch.challenge_id
             self._challenges[cid] = ch
-            if self.board.get(cid) is None:
+            existing = self.board.get(cid)
+            if existing is None:
                 self.board.put(ChallengeState(cid, ch.to_prompt_json()))
                 new_count += 1
+            else:
+                # 连接点可能变化（服务题死容器重建后端口漂移）→ 刷新 worker 看到的
+                # connection/service_status，否则自愈后的新端口到不了提示词
+                fresh = ch.to_prompt_json()
+                if (existing.raw.get("connection") != fresh.get("connection")
+                        or existing.raw.get("service_status") != fresh.get("service_status")):
+                    existing.raw.update(fresh)
+                    self.board.save()
+                    print(f"[sync] {cid} connection refreshed -> {fresh.get('connection')}")
         return new_count
 
     # ---------- hints ----------
