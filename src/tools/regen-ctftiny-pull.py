@@ -9,12 +9,15 @@ OUT = Path(r"D:\ctf-agent\src\tools\pull-ctftiny.sh")
 m = json.loads(MANIFEST.read_text(encoding="utf-8"))
 imgs = set()
 compose_count = 0
+# 特殊复活路径的镜像不靠拉取（HOST_OVERRIDES：本地构建+宿主 socat 服务）
+OVERRIDE_IMGS = {"llmctf/2018f-msc-showdown:latest"}
 for key, entry in m.items():
     if "benchmarks\\ctftiny" not in entry.get("root", "").replace("/", "\\"):
         continue
     compose_count += 1
     for svc in entry.get("services", []):
-        imgs.add(svc["normalized"])
+        if svc["normalized"] not in OVERRIDE_IMGS:
+            imgs.add(svc["normalized"])
 imgs = sorted(imgs)
 
 lines = ["#!/bin/bash",
