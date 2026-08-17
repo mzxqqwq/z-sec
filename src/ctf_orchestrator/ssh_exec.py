@@ -26,12 +26,8 @@ from typing import Any, Optional
 SECRETS_PATH = Path(r"D:\ctf-agent\secrets\kali.json")
 _SSH_TIMEOUT_DEFAULT = 300
 
-_client: Any = None          # paramiko SSHClient（懒建复用）
-_last_config: Optional[dict] = None
-
 
 def _load_config() -> dict:
-    global _last_config
     try:
         cfg = json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
@@ -40,7 +36,6 @@ def _load_config() -> dict:
     for k in need:
         if not cfg.get(k):
             raise RuntimeError(f"secrets/kali.json 缺少字段 {k}")
-    _last_config = cfg
     return cfg
 
 
@@ -56,33 +51,34 @@ def _connect() -> Any:
     return c
 
 
-_client_lock = threading.Lock()
+# 线程本地连接（2026-08-17 实测重构）：共享单连接在多线程并发（dispatch 同时 spawn 6 个
+# worker，每线程 ~30 次 kali_exec + 隧道 open_channel）下会被互相踩踏——任一线程的异常
+# 关闭公共连接，其他线程在途通道全部空失败（"run failed(SSH 抖动)"）。改线程本地：
+# 每线程一条独立连接，互不干扰；重连只影响本线程。
+_tls = threading.local()
 
 
 def _get_client() -> Any:
-    global _client, _last_config
-    # 并发重连竞态修复（2026-08-17 实测）：多 worker 隧道 + 编排器 kali_exec 同时触发
-    # 重连时，两个线程会互相 close 对方新建的 client → open_channel 抛
-    # "Connection lost before handshake" → worker 崩。整段加锁串行化。
-    with _client_lock:
-        if _client is not None and _last_config is not None:
-            try:
-                t = _client.get_transport()
-                if t is not None and t.is_active():
-                    return _client
-            except Exception:
-                pass
-            try:
-                _client.close()
-            except Exception:
-                pass
-            _client = None
+    c = getattr(_tls, "client", None)
+    if c is not None:
         try:
-            _client = _connect()
+            t = c.get_transport()
+            if t is not None and t.is_active():
+                return c
         except Exception:
-            _client = None
-            raise
-        return _client
+            pass
+        try:
+            c.close()
+        except Exception:
+            pass
+        _tls.client = None
+    try:
+        c = _connect()
+    except Exception:
+        _tls.client = None
+        raise
+    _tls.client = c
+    return c
 
 
 def kali_ssh_exec(command: str, timeout: int = _SSH_TIMEOUT_DEFAULT) -> dict[str, Any]:
@@ -97,8 +93,8 @@ def kali_ssh_exec(command: str, timeout: int = _SSH_TIMEOUT_DEFAULT) -> dict[str
     # 内层 timeout + bash -c 'echo <b64> | base64 -d | bash' 在提权后执行
     inner = f"timeout -k 5 {timeout} bash -c {json.dumps('echo ' + b64 + ' | base64 -d | bash')}"
     remote = f"sudo -S -p '' {inner}" if sudo else inner
-    last_err: Optional[Exception] = None
-    for attempt in (1, 2):  # 失败自动重连重试一次
+    last_err = ""
+    for attempt in (1, 2, 3):
         try:
             client = _get_client()
             chan = client.get_transport().open_session()
@@ -113,19 +109,21 @@ def kali_ssh_exec(command: str, timeout: int = _SSH_TIMEOUT_DEFAULT) -> dict[str
                 rc = chan.recv_exit_status()
             except Exception:
                 rc = -1
-            return {"stdout": out, "stderr": "", "returncode": rc, "success": rc == 0}
+            # 2026-08-17 实测：并发/网络抖动下会出现"rc=126 且零输出"的假失败
+            # （命令实际没执行/通道异常），不能直接判死——空输出+非零 rc 一律重试。
+            if rc == 0 or out.strip():
+                return {"stdout": out, "stderr": "", "returncode": rc, "success": rc == 0}
+            last_err = f"rc={rc} empty output"
         except Exception as e:
-            last_err = e
+            last_err = f"ssh exec failed: {e}"
             try:
-                if _client is not None:
-                    _client.close()
+                c = getattr(_tls, "client", None)
+                if c is not None:
+                    c.close()
             except Exception:
                 pass
-            _client = None
-            if attempt == 2:
-                return {"stdout": "", "stderr": f"ssh exec failed: {e}",
-                        "returncode": -1, "success": False}
-            time.sleep(0.5)
+            _tls.client = None
+        time.sleep(1.0 * attempt)
     return {"stdout": "", "stderr": f"ssh exec failed: {last_err}",
             "returncode": -1, "success": False}
 
@@ -162,10 +160,11 @@ def kali_healthy() -> tuple[bool, str]:
 
 
 def close() -> None:
-    global _client
-    if _client is not None:
+    """关闭本线程的连接（进程退出/测试用）。"""
+    c = getattr(_tls, "client", None)
+    if c is not None:
         try:
-            _client.close()
+            c.close()
         except Exception:
             pass
-        _client = None
+        _tls.client = None
