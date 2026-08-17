@@ -87,39 +87,45 @@ def spawn_worker_container(cid: str, idx: int) -> Optional[tuple[str, int, str]]
     ws = SANDBOX_WS_HOST / cid / f"w{idx}"
     _sh(f"mkdir -p -m 777 {ws} && chown -R ctfworker:ctfworker {ws}", timeout=60)
     name = f"ws-{cid[:32]}-{idx}".lower()
-    for attempt in range(2):
-        hp = alloc_host_port()
-        if not hp:
-            print(f"[sandbox] {cid}/w{idx} no free port")
-            return None
-        r = _sh(f"runuser -u ctfworker -- podman rm -f {name} >/dev/null 2>&1; true; "
-                f"runuser -u ctfworker -- podman run -d --rm --name {name} "
-                f"--network slirp4netns:allow_host_loopback=true "
-                f"-p 127.0.0.1:{hp}:22 -e WORKER_PASS={password} "
-                f"-v {ws}:/root/ctf --cap-drop=ALL "
-                # sshd 最小能力（chroot privsep/会话 setuid/绑 22 端口）+ 解题必需（gdb 的
-                # SYS_PTRACE、nmap 半开扫描的 NET_RAW）；无 NET_ADMIN/SYS_ADMIN/DAC_READ_SEARCH。
-                f"--cap-add=SYS_PTRACE --cap-add=NET_RAW --cap-add=NET_BIND_SERVICE "
-                f"--cap-add=SYS_CHROOT --cap-add=SETUID --cap-add=SETGID "
-                f"--cap-add=CHOWN --cap-add=DAC_OVERRIDE --cap-add=FOWNER "
-                f"--cap-add=FSETID --cap-add=AUDIT_WRITE --cap-add=KILL "
-                f"--security-opt no-new-privileges {SANDBOX_IMG}", timeout=300)
-        out = r.get("stdout", "") + r.get("stderr", "")
-        if r.get("success") and "Error" not in out and out.strip():
-            break
-        print(f"[sandbox] {cid}/w{idx} run attempt {attempt + 1} failed: {out[-200:]}")
+    last_err = ""
+    for outer in range(2):
         hp = 0
-    if not hp:
-        return None
-    for _ in range(40):
-        r2 = _sh(f"timeout 2 bash -c '(exec 3<>/dev/tcp/127.0.0.1/{hp}) 2>/dev/null' && "
-                 f"echo OPEN || echo CLOSED", timeout=30)
-        if "OPEN" in r2.get("stdout", ""):
-            print(f"[sandbox] {cid}/w{idx} container up ({name} -> 127.0.0.1:{hp})")
-            return ("127.0.0.1", hp, password)
-        time.sleep(1.0)
-    _sh(f"runuser -u ctfworker -- podman rm -f {name} >/dev/null 2>&1; true", timeout=60)
-    print(f"[sandbox] {cid}/w{idx} sshd not ready in 40s")
+        for attempt in range(2):
+            hp = alloc_host_port()
+            if not hp:
+                last_err = "no free port"
+                continue
+            r = _sh(f"runuser -u ctfworker -- podman rm -f {name} >/dev/null 2>&1; true; "
+                    f"runuser -u ctfworker -- podman run -d --rm --name {name} "
+                    f"--network slirp4netns:allow_host_loopback=true "
+                    f"-p 127.0.0.1:{hp}:22 -e WORKER_PASS={password} "
+                    f"-v {ws}:/root/ctf --cap-drop=ALL "
+                    # sshd 最小能力（chroot privsep/会话 setuid/绑 22 端口）+ 解题必需（gdb 的
+                    # SYS_PTRACE、nmap 半开扫描的 NET_RAW）；无 NET_ADMIN/SYS_ADMIN/DAC_READ_SEARCH。
+                    f"--cap-add=SYS_PTRACE --cap-add=NET_RAW --cap-add=NET_BIND_SERVICE "
+                    f"--cap-add=SYS_CHROOT --cap-add=SETUID --cap-add=SETGID "
+                    f"--cap-add=CHOWN --cap-add=DAC_OVERRIDE --cap-add=FOWNER "
+                    f"--cap-add=FSETID --cap-add=AUDIT_WRITE --cap-add=KILL "
+                    f"--security-opt no-new-privileges {SANDBOX_IMG}", timeout=300)
+            out = r.get("stdout", "") + r.get("stderr", "")
+            if r.get("success") and "Error" not in out and out.strip():
+                break
+            last_err = out[-200:]
+            print(f"[sandbox] {cid}/w{idx} run attempt {attempt + 1} failed: {last_err}")
+            hp = 0
+        if not hp:
+            continue
+        for _ in range(40):
+            r2 = _sh(f"timeout 2 bash -c '(exec 3<>/dev/tcp/127.0.0.1/{hp}) 2>/dev/null' && "
+                     f"echo OPEN || echo CLOSED", timeout=30)
+            if "OPEN" in r2.get("stdout", ""):
+                print(f"[sandbox] {cid}/w{idx} container up ({name} -> 127.0.0.1:{hp})")
+                return ("127.0.0.1", hp, password)
+            time.sleep(1.0)
+        last_err = "sshd not ready in 40s"
+        print(f"[sandbox] {cid}/w{idx} {last_err}; retrying spawn (outer {outer + 1})")
+        _sh(f"runuser -u ctfworker -- podman rm -f {name} >/dev/null 2>&1; true", timeout=60)
+    print(f"[sandbox] {cid}/w{idx} spawn failed: {last_err}")
     return None
 
 
@@ -159,12 +165,20 @@ class SshTunnel:
             threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
 
     def _serve(self, conn: socket.socket) -> None:
-        try:
-            from ssh_exec import _get_client
-            client = _get_client()
-            chan = client.get_transport().open_channel(
-                "direct-tcpip", self.remote, conn.getpeername())
-        except Exception:
+        # open_channel 失败重试（编排器 SSH 并发重连窗口内会短暂不可用——实测
+        # "Connection lost before handshake" 崩 worker；3 次重试后仍失败才放弃）
+        chan = None
+        for _attempt in range(3):
+            try:
+                from ssh_exec import _get_client
+                client = _get_client()
+                chan = client.get_transport().open_channel(
+                    "direct-tcpip", self.remote, conn.getpeername())
+                break
+            except Exception:
+                chan = None
+                time.sleep(0.5)
+        if chan is None:
             try:
                 conn.close()
             except OSError:

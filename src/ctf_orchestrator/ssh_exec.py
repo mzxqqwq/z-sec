@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -55,26 +56,33 @@ def _connect() -> Any:
     return c
 
 
+_client_lock = threading.Lock()
+
+
 def _get_client() -> Any:
     global _client, _last_config
-    if _client is not None and _last_config is not None:
+    # 并发重连竞态修复（2026-08-17 实测）：多 worker 隧道 + 编排器 kali_exec 同时触发
+    # 重连时，两个线程会互相 close 对方新建的 client → open_channel 抛
+    # "Connection lost before handshake" → worker 崩。整段加锁串行化。
+    with _client_lock:
+        if _client is not None and _last_config is not None:
+            try:
+                t = _client.get_transport()
+                if t is not None and t.is_active():
+                    return _client
+            except Exception:
+                pass
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = None
         try:
-            t = _client.get_transport()
-            if t is not None and t.is_active():
-                return _client
+            _client = _connect()
         except Exception:
-            pass
-        try:
-            _client.close()
-        except Exception:
-            pass
-        _client = None
-    try:
-        _client = _connect()
-    except Exception:
-        _client = None
-        raise
-    return _client
+            _client = None
+            raise
+        return _client
 
 
 def kali_ssh_exec(command: str, timeout: int = _SSH_TIMEOUT_DEFAULT) -> dict[str, Any]:

@@ -117,29 +117,55 @@ function resetClient(): void {
 function getClient(): Promise<InstanceType<typeof Client>> {
 	if (client) return Promise.resolve(client);
 	if (connecting) return connecting;
-	connecting = new Promise((resolve, reject) => {
-		const c = new Client();
+	connecting = (async () => {
 		const cfg = loadConfig();
-		const onReady = () => { connecting = null; client = c; resolve(c); };
-		const onError = (err: Error) => {
-			connecting = null;
-			try { c.end(); } catch { /* ignore */ }
-			reject(new Error(`kali ssh connect ${configLabel(cfg)} failed: ${err.message}`));
-		};
-		c.once("ready", onReady);
-		c.once("error", onError);
-		c.on("close", () => {
-			if (client === c) client = null;
-			if (connecting) { connecting = null; }
-		});
-		c.connect({
-			host: cfg.host,
-			port: cfg.port,
-			username: cfg.username,
-			password: cfg.password,
-			readyTimeout: 20_000,
-			keepaliveInterval: 30_000,
-		});
+		let lastErr: Error | null = null;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const c = new Client();
+			try {
+				await new Promise<void>((resolve, reject) => {
+					let done = false;
+					const onReady = () => {
+						if (done) return;
+						done = true;
+						client = c;
+						resolve();
+					};
+					const onError = (err: Error) => {
+						// 首次错误 reject；握手后的后续错误静默（否则 ssh2 的
+						// "Unhandled 'error' event" 会直接崩掉整个 worker 进程——
+						// 2026-08-17 沙箱隧道握手失败实测）
+						if (done) return;
+						done = true;
+						reject(new Error(
+							`kali ssh connect ${configLabel(cfg)} failed: ${err.message}`));
+					};
+					c.once("ready", onReady);
+					c.on("error", onError);
+					c.on("close", () => {
+						if (client === c) client = null;
+					});
+					c.connect({
+						host: cfg.host,
+						port: cfg.port,
+						username: cfg.username,
+						password: cfg.password,
+						readyTimeout: 20_000,
+						keepaliveInterval: 30_000,
+					});
+				});
+				return c;
+			} catch (e) {
+				lastErr = e as Error;
+				try { c.end(); } catch { /* ignore */ }
+				await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+			}
+		}
+		throw lastErr ?? new Error("kali ssh connect failed");
+	})();
+	// 成功时 client 已置位；失败时清空 connecting，下次调用重新尝试
+	connecting.finally(() => {
+		if (!client) connecting = null;
 	});
 	return connecting;
 }
