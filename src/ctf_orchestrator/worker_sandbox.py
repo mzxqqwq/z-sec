@@ -24,6 +24,10 @@ SANDBOX_IMG = "worker:latest"
 SANDBOX_WS_HOST = Path("/data/worker-ws")          # Kali 宿主侧工作区根（挂进容器 /root/ctf）
 PORT_BASE, PORT_SPAN = 22900, 100
 CALLBACK_PORTS = (23100, 23199)                    # 回连场景：worker 发布端口供靶机回连
+# host 回退模式的受限账号：容器 spawn 失败时 worker 直接以 ctfworker uid 登录宿主机
+# （不经 sudo），吃同一套 iptables 出站封锁——否则回退 worker 有完整外网，
+# 写脚本绕过 NET_POLICY 就能拉公开题解（2026-08-17 实测事故：fallback 题 curl google 200）。
+CTFWORKER_PASSWORD = "SBX-worker-2026!"            # Kali 侧 chpasswd 已设（见 setup）
 
 
 def _sh(cmd: str, timeout: int = 300) -> dict[str, Any]:

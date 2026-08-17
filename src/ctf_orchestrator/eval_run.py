@@ -121,6 +121,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("[integrity] Kali workspace cleaned (/root/ctf/*)")
             kali_exec("rm -rf /data/worker-ws/* 2>/dev/null; echo ws-cleaned", timeout=60)
+            # worker 可能留下的脏物（官方 writeup/解脚本/临时复制品——2026-08-17 实测
+            # /tmp/sekai-ctf-2023-web-writeup 与 /root/nt 的 solve.py 被回退 worker 翻出）
+            kali_exec("rm -rf /root/nt /root/work /root/*writeup* /root/writeup* "
+                      "/tmp/sekai* /tmp/*writeup* /tmp/picklejail /tmp/bld.log "
+                      "2>/dev/null; echo litter-cleaned", timeout=120)
             try:
                 import worker_sandbox
                 worker_sandbox.cleanup_stale()

@@ -399,9 +399,48 @@ class Orchestrator:
                         print(f"[{cid}] worker {idx} sandbox: container ssh "
                               f"127.0.0.1:{tunnel.lport} (userns+断网)")
                     else:
-                        print(f"[{cid}] worker {idx} sandbox spawn failed -> host fallback")
+                        # 回退也锁外网：以 ctfworker uid 直连 Kali（无 sudo），吃 iptables
+                        # 出站封锁——否则回退 worker 有完整外网（写脚本绕过 NET_POLICY 就能
+                        # 拉公开题解，2026-08-17 实测事故）。工作区放开写权限。
+                        print(f"[{cid}] worker {idx} sandbox spawn failed -> "
+                              f"restricted host fallback (ctfworker uid)")
+                        kali_host = "127.0.0.1"
+                        try:
+                            from ssh_exec import _load_config
+                            kali_host = str(_load_config().get("host") or "127.0.0.1")
+                        except Exception:
+                            pass
+                        extra_env.update({
+                            "KALI_HOST": kali_host,
+                            "KALI_PORT": "22",
+                            "KALI_USER": "ctfworker",
+                            "KALI_PASSWORD": worker_sandbox.CTFWORKER_PASSWORD,
+                            "KALI_SUDO": "0",
+                        })
+                        try:
+                            from workers import kali_exec
+                            kali_exec(f"chmod -R 777 {remote_roots[idx]}", timeout=120)
+                        except Exception:
+                            pass
                 except Exception as e:
-                    print(f"[{cid}] worker {idx} sandbox error {e} -> host fallback")
+                    print(f"[{cid}] worker {idx} sandbox error {e} -> restricted host fallback")
+                    try:
+                        from workers import kali_exec
+                        kali_host = "127.0.0.1"
+                        try:
+                            from ssh_exec import _load_config
+                            kali_host = str(_load_config().get("host") or "127.0.0.1")
+                        except Exception:
+                            pass
+                        extra_env.update({
+                            "KALI_HOST": kali_host, "KALI_PORT": "22",
+                            "KALI_USER": "ctfworker",
+                            "KALI_PASSWORD": worker_sandbox.CTFWORKER_PASSWORD,
+                            "KALI_SUDO": "0",
+                        })
+                        kali_exec(f"chmod -R 777 {remote_roots[idx]}", timeout=120)
+                    except Exception:
+                        pass
             cmd = (self.pi_cmd + ["--model", cfg["model"], "--thinking", cfg["thinking"],
                                   "--mode", "rpc", "--kali", kali_cwds[idx],
                                   "--cid", cid])
