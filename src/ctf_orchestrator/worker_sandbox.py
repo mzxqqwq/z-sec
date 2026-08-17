@@ -50,10 +50,15 @@ def ensure_iptables() -> bool:
     rootlessport/slirp 的端口转发内部依赖 loopback 随机端口，全封会把 -p 发布端口
     也掐死（容器在、sshd 在，但宿主连不上）。因此：
     - 10.0.2.0/24（slirp 内部）、22000-22499（靶机）、23100-23199（回连）放行；
+    - podman 网桥段 10.88/16 + 10.89/16：revival/cybench 靶机的 netavark DNAT 会把
+      127.0.0.1:<端口> 的目的地改写成容器网桥 IP——不放行则 ctfworker 的 SYN 落到
+      全 REJECT（CTFTiny 21000 段 TIMEOUT 实锤，2026-08-17）；
     - 127/8 只拒敏感宿主端口 22/80/5000（sshd/nginx/REST）；
-    - 外网（非 loopback）一律 REJECT——这是真正的断网封锁。"""
+    - 外网（非 loopback/非内网桥段）一律 REJECT——这是真正的断网封锁。"""
     specs = [
         "-m owner --uid-owner ctfworker -d 10.0.2.0/24 -j ACCEPT",
+        "-m owner --uid-owner ctfworker -d 10.88.0.0/16 -j ACCEPT",
+        "-m owner --uid-owner ctfworker -d 10.89.0.0/16 -j ACCEPT",
         f"-m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
         f"--dport 22000:22499 -j ACCEPT",
         f"-m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
