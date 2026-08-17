@@ -32,4 +32,5 @@ env/
 .env.*
 *.local
 *.key
-*.logsrc/tools/worker-img/*.tgz
+*.log
+src/tools/worker-img/*.tgz
