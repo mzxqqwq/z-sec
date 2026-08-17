@@ -54,13 +54,12 @@
       ]
     },
     {
-      "base_url": "http://139.196.205.198:3000/v1",
-      "id": "newapi",
-      "label": "中转站/NewAPI 网关",
+      "base_url": "https://__gateway_pending__",
+      "id": "dasctf-gateway",
+      "label": "DASCTF 大模型网关（白名单，8/18 平台文档确认后替换真实 URL）",
       "models": [
-        "gpt-5.6-sol",
-        "gpt-5.6-luna",
-        "claude-fable-5"
+        "deepseek-v4-pro",
+        "deepseek-v4-flash"
       ]
     }
   ]

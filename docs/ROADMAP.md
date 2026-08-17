@@ -1,0 +1,60 @@
+# ROADMAP.md —— 第九届西湖论剑「AI Agent 解题夺旗」作战路线图
+
+> 定稿 2026-08-17，用户已确认。凭据一律只放 `config/secrets.json`（gitignore，不提交），
+> 本文档不出现任何账号密码原文。
+
+## 一、目标与边界
+
+- 赛事：西湖论剑 AI 赛道 @ `gcsis.dasctf.com`；测试赛 8/18 09:00–8/19 17:00；初赛 8/21 14:00–17:00（3h）；决赛 = 答辩。
+- 每队仅一个 Agent 接入平台；flag 提交仅需 `{}` 内内容；每题 50 次提交上限，禁爆破。
+- 赛后：在线交解题报告 + 网络流量 + 平台日志三方核对（平台已部署流量监控审计）。
+- 联网搜索：**明确允许**（流量审计只约束大模型端点）。
+- LLM 调用：**必须走平台大模型网关白名单端点**，网关验证通过前不试打（硬门禁）。
+
+## 二、架构原则（AK，全中文输出）
+
+- 每题 1 强（deepseek-v4-pro / thinking medium）+ 1 弱（deepseek-v4-flash / low）双 worker。
+- `max_parallel_challenges = 3`；只解当前题，绝不切题；直接提交；无 triage / 僵局击杀 / fallback。
+- worker 思考/回复 + observer 看板全中文。
+
+## 三、环境边界
+
+- **benchmark 回归（bench_mode=True，仅 eval_run.py）**：worker 容器化（rootless podman + userns + 断网 iptables 锁），worker 禁止抓取 flag/writeup；真值只存 Windows。
+- **比赛（bench_mode=False）**：无容器、无 iptables、无 NET_POLICY；worker 跑 Kali host（root），全网络允许搜索。
+- 白名单端点：DeepSeek `api.deepseek.com`（`/chat/completions`、`/v1/chat/completions`、`/responses`、`/anthropic/v1/messages`）及各厂商表列端点。
+- **非白名单中转站已移除**（不在白名单，流量审计会取消成绩）——阶段 0 完成引用零命中闭环。
+
+## 四、阶段 0（8/17 晚）——环境定稿
+
+- [x] 四阶段计划落地为本文档
+- [x] 平台账号写入 `config/secrets.json` 的 `dasctf` 段（base_url / username / password）
+- [x] `dasctf_client.py` 与 `preflight.py` 改为从配置文件读取账号（env 兜底）
+- [x] 移除中转站 provider：`config/agent.json` + `~/.pi/agent/models.json` + `config/secrets.json` + `src/tools` 残留脚本，引用零命中
+- [x] `config/agent.json` 预置「大模型网关」provider 占位位（8/18 拿到平台文档后替换真实白名单 URL）
+- [ ] benchmark 回归冒烟：并发 spawn 4/4、iptables 8 条、24 个 cybench 靶机可达
+- [ ] `preflight.py` 全绿
+- [x] preflight 孤儿 worker 判定收紧为 coding-agent（npx/@playwright/mcp 误报修复）
+
+## 五、阶段 1（8/18 09:00）——平台对接
+
+- 登录 `gcsis.dasctf.com`（账号见 `config/secrets.json` dasctf 段）。
+- 文档中心导出《API 接入说明》《大模型网关接入》。
+- 【运行环境】页配置 BASEURL 白名单 URL + 同步平台 accesskey。
+- 用抓包/文档确认：认证形态（cookie / token / accesskey）、真实 API 路径（补全 `dasctf_client.EP`）、flag 剥壳规则、动态靶机开启/关闭协议。
+
+## 六、阶段 2——平台闭环验证
+
+- 平台闭环 + 大模型网关闭环（**网关验证通过前不试打**）。
+- flag 剥壳实测（`DASCTF{...}` / `flag{...}` → 提交 `{}` 内内容）。
+- 提交限频纪律落地：每题 50 次上限、最小间隔、错误预算。
+
+## 七、阶段 3（8/18–19）——小规模试打
+
+- host 模式（bench_mode=False），全网络允许搜索。
+- 试打 2–4 题，校准：模型参数、并行度、超时、提交策略。
+- 初赛配置定稿（写入 `config/agent.json`）。
+
+## 八、阶段 4（8/21）——初赛
+
+- 14:00–17:00 初赛；**14:30 后不开新难题**（时间策略）。
+- 赛后生成解题报告（决赛答辩材料）。

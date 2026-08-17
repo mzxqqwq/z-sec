@@ -95,22 +95,29 @@ def main() -> int:
     except Exception as e:
         check("编排器导入", False, str(e))
 
-    # 8. 孤儿 worker
+    # 8. 孤儿 worker（只数我们自己的 pi worker：命令行含 coding-agent\cli.js；
+    #    不匹配 npx/@playwright/mcp 等外部 node 进程——2026-08-17 误报实锤）
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                              "(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'cli.js' }).Count"],
+                              "(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'coding-agent' }).Count"],
                              capture_output=True, text=True, timeout=30)
         n = int(out.stdout.strip() or 0)
         check("无孤儿 worker", n == 0, f"{n} 个")
     except Exception as e:
         check("无孤儿 worker", False, str(e))
 
-    # 9. 环境变量提示
-    has_url = bool(os.environ.get("DASCTF_BASE_URL"))
-    has_user = bool(os.environ.get("DASCTF_USERNAME"))
-    has_pwd = bool(os.environ.get("DASCTF_PASSWORD"))
-    check("平台凭证 env", has_url and has_user and has_pwd,
-          f"BASE={'Y' if has_url else 'N'} USER={'Y' if has_user else 'N'} PWD={'Y' if has_pwd else 'N'}（测试赛当天设置）")
+    # 9. 平台凭证（config/secrets.json dasctf 段，env 兜底；BASE 必须指向白名单域）
+    try:
+        sys.path.insert(0, str(ROOT / "src" / "dasctf_client"))
+        from dasctf_client import load_dasctf_credentials
+        creds = load_dasctf_credentials()
+        base_ok = str(creds.get("base_url", "")).startswith("https://gcsis.dasctf.com")
+        check("平台凭证", base_ok and bool(creds.get("username")) and bool(creds.get("password")),
+              f"BASE={'Y' if base_ok else 'N'} "
+              f"USER={'Y' if creds.get('username') else 'N'} "
+              f"PWD={'Y' if creds.get('password') else 'N'}（config/secrets.json dasctf 段，env 兜底）")
+    except Exception as e:
+        check("平台凭证", False, str(e))
 
     # 10. workspace 可写
     ws = ROOT / "workspace"

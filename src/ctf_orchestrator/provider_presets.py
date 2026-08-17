@@ -65,8 +65,8 @@ MODEL_CATALOG: dict[str, dict[str, Any]] = {
 # 中转站模板（用户只填 url + key；模型清单是目录里有元数据的常用裸 id）
 GATEWAY_PRESETS: list[dict[str, Any]] = [
     {
-        "id": "newapi",
-        "name": "中转站/NewAPI 网关",
+        "id": "openai-compat-gateway",
+        "name": "OpenAI 兼容网关（模板）",
         "base_url": "",
         "models": ["gpt-5.6-sol", "gpt-5.4-mini", "claude-sonnet-4.6", "claude-haiku-4.5",
                    "gemini-3.5-flash", "deepseek-v4-pro", "deepseek-v4-flash",

@@ -53,9 +53,19 @@ def extract_api_hints(text: str) -> dict[str, list[str]]:
     return {"paths": paths[:100], "base_urls": base_urls[:20], "hosts": hosts[:20]}
 
 
+def _default_base_url() -> str:
+    """平台地址默认值：config/secrets.json dasctf 段（env 兜底由 load_* 处理）。"""
+    try:
+        from dasctf_client import load_dasctf_credentials
+        return load_dasctf_credentials().get("base_url", "https://gcsis.dasctf.com")
+    except Exception:
+        return "https://gcsis.dasctf.com"
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="probe_platform")
-    p.add_argument("--base-url", required=True)
+    p.add_argument("--base-url", default=_default_base_url(),
+                   help="平台地址（默认读 config/secrets.json dasctf 段）")
     p.add_argument("--out", default="D:/ctf-agent/workspace/probe")
     args = p.parse_args(argv)
 

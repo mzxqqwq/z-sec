@@ -10,12 +10,13 @@ DASCTF 竞赛平台 API 客户端（骨架版 v0.1）
 其余逻辑（会话、重试、限频、flag 检测、提交队列）与平台无关。
 
 用法：
-    export DASCTF_BASE_URL='https://game.gcsis.cn'
-    export DASCTF_USERNAME='xxx'
-    export DASCTF_PASSWORD='xxx'
     python dasctf_client.py login && python dasctf_client.py challenges
     python dasctf_client.py submit --challenge 1 --flag 'DASCTF{test}'
 
+账号来源（env > config/secrets.json dasctf 段，secrets.json 不入库）：
+    config/secrets.json: { "dasctf": { "base_url": ..., "username": ..., "password": ... } }
+    或环境变量 DASCTF_BASE_URL / DASCTF_USERNAME / DASCTF_PASSWORD 兜底。
+平台：第九届西湖论剑 AI 赛道 gcsis.dasctf.com。
 依赖：requests（本机已装）。仅标准库 + requests。
 """
 from __future__ import annotations
@@ -58,6 +59,36 @@ FLAG_PATTERNS: list[re.Pattern] = [
     re.compile(rb"ctf\{[0-9a-zA-Z_\-!@#$%^&*]{4,64}\}", re.I),
     re.compile(rb"[0-9a-f]{32}", re.I),  # md5 形态兜底
 ]
+
+
+# ---------------------------------------------------------------------------
+# 平台账号来源（env > config/secrets.json dasctf 段；secrets.json gitignore）
+# ---------------------------------------------------------------------------
+ROOT = Path(__file__).resolve().parents[2]
+SECRETS_PATH = ROOT / "config" / "secrets.json"
+
+
+def load_dasctf_credentials() -> dict[str, str]:
+    """返回 {base_url, username, password}。env 优先，其次 secrets.json dasctf 段。"""
+    env = {
+        "base_url": os.environ.get("DASCTF_BASE_URL", "").strip(),
+        "username": os.environ.get("DASCTF_USERNAME", "").strip(),
+        "password": os.environ.get("DASCTF_PASSWORD", "").strip(),
+    }
+    file_creds: dict[str, str] = {}
+    try:
+        if SECRETS_PATH.exists():
+            data = json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
+            d = data.get("dasctf")
+            if isinstance(d, dict):
+                file_creds = {str(k): str(v).strip() for k, v in d.items() if str(v).strip()}
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {
+        "base_url": env["base_url"] or file_creds.get("base_url", "https://gcsis.dasctf.com"),
+        "username": env["username"] or file_creds.get("username", ""),
+        "password": env["password"] or file_creds.get("password", ""),
+    }
 
 
 class ClientError(RuntimeError):
@@ -223,9 +254,10 @@ def extract_flags(text: bytes | str) -> list[str]:
 # CLI
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
+    creds = load_dasctf_credentials()
     p = argparse.ArgumentParser(prog="dasctf_client")
-    p.add_argument("--base-url", default=os.environ.get("DASCTF_BASE_URL", "https://game.gcsis.cn"))
-    p.add_argument("--username", default=os.environ.get("DASCTF_USERNAME"))
+    p.add_argument("--base-url", default=creds["base_url"])
+    p.add_argument("--username", default=creds["username"])
     p.add_argument("--password-env", default="DASCTF_PASSWORD", help="env var holding the password")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("probe")
@@ -246,9 +278,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "probe":
         print(json.dumps(c.probe(), ensure_ascii=False, indent=2))
     elif args.cmd == "login":
-        password = os.environ.get(args.password_env, "")
-        if not password:
-            print("error: password env not set", file=sys.stderr)
+        password = os.environ.get(args.password_env, "").strip() or creds.get("password", "")
+        if not args.username or not password:
+            print("error: 缺少账号（--username / 环境变量 / config/secrets.json dasctf 段）", file=sys.stderr)
             return 2
         print("ok" if c.login(args.username, password) else "failed")
     elif args.cmd == "whoami":

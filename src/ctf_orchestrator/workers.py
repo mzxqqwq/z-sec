@@ -189,8 +189,13 @@ def kill_tree(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
-def cleanup_orphans(pattern: str = "cli.js") -> int:
-    """清理孤儿 worker：node cli.js 且父进程已死。返回清理数。"""
+def cleanup_orphans(pattern: str = "coding-agent") -> int:
+    """清理孤儿 worker：node.exe 命令行含 coding-agent（我们自己的 pi cli.js 路径）
+    且父进程已死。返回清理数。
+
+    2026-08-17 收紧：原默认 'cli.js' 会匹配 npx/@playwright/mcp 等外部 node 进程
+    （父进程活着时不会误杀，但父进程一旦退出，它们会变成"孤儿"被误清——会打断
+    用户其他工具）。改成只匹配我们的 pi worker 路径。"""
     import psutil  # 延迟导入：仅 Windows 编排机需要
 
     killed = 0

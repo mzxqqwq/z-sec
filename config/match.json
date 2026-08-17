@@ -1,0 +1,10 @@
+{
+  "strong": { "model": "deepseek-v4-pro", "thinking": "medium" },
+  "weak": { "model": "deepseek-v4-flash", "thinking": "low" },
+  "observer": { "model": "deepseek-v4-pro", "thinking": "medium" },
+  "max_parallel_challenges": 3,
+  "planning_enabled": true,
+  "supervisor_enabled": true,
+  "kb_enabled": false,
+  "worker_sandbox": "host"
+}

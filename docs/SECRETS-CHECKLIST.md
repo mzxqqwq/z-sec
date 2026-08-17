@@ -119,7 +119,7 @@ revival 均已接入；`run-pi.ps1` 与 `ctf_orchestrator_v1.py.bak` 本来就�
 
 **未发现硬编码真密码**，命中均为字段名/占位符/第三方噪声：
 
-- `src/dasctf_client/dasctf_client.py:145,146,229,249-253`（登录参数，值从 `DASCTF_PASSWORD` 环境变量读）
+- `src/dasctf_client/dasctf_client.py`（登录参数，值从 `config/secrets.json` dasctf 段读，env 兜底；`load_dasctf_credentials()` 见文件内）
 - `src/pi-ext/kali.ts:13,68,83,96,139,191`（SSH `password` 字段，从 `secrets/kali.json`/`KALI_PASSWORD` 读）
 - `src/ctf_orchestrator/ctf_orchestrator_v1.py.bak:319-322`（`DASCTF_PASSWORD` 环境变量）
 - `src/pi-ext/node_modules/**`（ssh2 等第三方测试 fixture 的假密码 `'hi mom'`/`'1234'` 等，已 gitignore）
@@ -219,12 +219,21 @@ sk-你的DeepSeek密钥
 }
 ```
 
-### 4.4 `config/secrets.json`（provider id → key，gitignore）
+### 4.4 `config/secrets.json`（provider id → key + dasctf 账号段，gitignore）
 
 ```json
 {
-  "deepseek": "sk-你的DeepSeek密钥"
+  "deepseek": "sk-你的DeepSeek密钥",
+  "dasctf": {
+    "base_url": "https://gcsis.dasctf.com",
+    "username": "你的平台账号",
+    "password": "你的平台密码"
+  }
 }
 ```
+
+> 平台账号（dasctf 段）由 `src/dasctf_client/dasctf_client.py::load_dasctf_credentials()`
+> 读取（env 变量 `DASCTF_BASE_URL/DASCTF_USERNAME/DASCTF_PASSWORD` 只是兜底），
+> 比赛入口 `ctf_orchestrator.py` 与 `probe_platform.py` 共用同一来源（2026-08-17）。
 
 > 其余可提交的配置（`config/agent.json`、`src/ctf_orchestrator/l2-config.json`）不含真值，可直接用仓库默认或经 Web UI「配置」页生成。

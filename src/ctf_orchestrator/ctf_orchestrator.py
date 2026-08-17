@@ -744,7 +744,15 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"orphan cleanup failed: {e}")
 
-    base_url = os.environ.get("DASCTF_BASE_URL", "https://game.gcsis.cn")
+    # 平台地址：config/secrets.json dasctf 段 > 环境变量 > 白名单默认域（2026-08-17）
+    base_url = os.environ.get("DASCTF_BASE_URL", "").strip()
+    if not base_url:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dasctf_client"))
+            from dasctf_client import load_dasctf_credentials
+            base_url = load_dasctf_credentials().get("base_url", "https://gcsis.dasctf.com")
+        except Exception:
+            base_url = "https://gcsis.dasctf.com"
     plat_kind = args.platform
     if plat_kind == "auto":
         plat_kind = "mock" if ("127.0.0.1" in base_url or "localhost" in base_url) else "dasctf"
