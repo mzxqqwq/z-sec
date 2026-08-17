@@ -23,7 +23,8 @@
     "max_parallel_challenges": 3,
     "planning_enabled": true,
     "supervisor_enabled": true,
-    "kb_enabled": false
+    "kb_enabled": false,
+    "worker_sandbox": "container"
   },
   "providers": [
     {

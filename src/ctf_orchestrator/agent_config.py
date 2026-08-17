@@ -37,6 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "planning_enabled": True,
         "supervisor_enabled": True,
         "kb_enabled": False,
+        "worker_sandbox": "container",   # benchmark 下 worker 跑 rootless 容器隔离；"host" = 旧模式
     },
     "providers": [
         {"id": "deepseek", "label": "DeepSeek",

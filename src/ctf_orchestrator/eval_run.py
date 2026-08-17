@@ -112,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         # 完整性：清空 Kali 工作区残留（上一 run 的 worker 可能留下题库树/真值泄漏，
         # 本 run 的 worker 用 find 就能翻到——2026-08-16 审计事故）。
         # 只清 /root/ctf 下的挑战目录；showdown 等容器服务由 revival 启动时重建。
+        # 容器沙箱模式：同时清 /data/worker-ws 与上一 run 残留的 worker 容器。
         try:
             from workers import kali_exec
             out = kali_exec("rm -rf /root/ctf/* 2>/dev/null; echo cleaned", timeout=60)
@@ -119,6 +120,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[integrity] Kali workspace clean: {out.get('stdout') or out.get('stderr')}")
             else:
                 print("[integrity] Kali workspace cleaned (/root/ctf/*)")
+            kali_exec("rm -rf /data/worker-ws/* 2>/dev/null; echo ws-cleaned", timeout=60)
+            try:
+                import worker_sandbox
+                worker_sandbox.cleanup_stale()
+            except Exception as e:
+                print(f"[integrity] sandbox stale cleanup failed（评测继续）: {e}")
         except Exception as e:
             print(f"[integrity] Kali workspace clean failed（评测继续，注意审计）: {e}")
 

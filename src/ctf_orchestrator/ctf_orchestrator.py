@@ -96,8 +96,9 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
 
 BENCH_NET_NOTICE = """\
 【benchmark 网络封锁】本场为能力评测：严禁联网搜索题目/题解（curl/wget/git/pip/外联
-命令会被工具层拦截并报错）。题目附件 + 本地靶机（127.0.0.1）足以解题，请完全依赖
-自己的分析。这是硬性要求，不要浪费时间尝试绕过。"""
+命令会被工具层拦截并报错，外网连接已被物理切断）。题目附件 + 本地靶机（题目
+connection 字段给出的地址，如 10.0.2.2:端口）足以解题，请完全依赖自己的分析。
+这是硬性要求，不要浪费时间尝试绕过。"""
 
 # 比赛模式专用纪律条款（benchmark 不注入：bench 有网络封锁+审计，条款不适用）
 MATCH_RULES_SECTION = """\
@@ -216,17 +217,22 @@ class Orchestrator:
 
     def _sync(self) -> int:
         new_count = 0
+        sandbox = bool(self.bench_mode
+                       and self.model_config.get("worker_sandbox") in (None, "container"))
         for ch in self.platform.list_challenges():
             cid = ch.challenge_id
             self._challenges[cid] = ch
+            fresh = ch.to_prompt_json()
+            # worker 容器模式下，靶机从容器内看是 10.0.2.2（slirp 的宿主机回环别名）
+            if sandbox and fresh.get("connection", "").startswith("127.0.0.1"):
+                fresh["connection"] = fresh["connection"].replace("127.0.0.1", "10.0.2.2", 1)
             existing = self.board.get(cid)
             if existing is None:
-                self.board.put(ChallengeState(cid, ch.to_prompt_json()))
+                self.board.put(ChallengeState(cid, fresh))
                 new_count += 1
             else:
                 # 连接点可能变化（服务题死容器重建后端口漂移）→ 刷新 worker 看到的
                 # connection/service_status，否则自愈后的新端口到不了提示词
-                fresh = ch.to_prompt_json()
                 if (existing.raw.get("connection") != fresh.get("connection")
                         or existing.raw.get("service_status") != fresh.get("service_status")):
                     existing.raw.update(fresh)
@@ -300,11 +306,19 @@ class Orchestrator:
 
         workdir = self.ws / "challenges" / cid
         workdir.mkdir(parents=True, exist_ok=True)
-        remote_base = f"/root/ctf/{cid}"
+        # worker 容器沙箱（benchmark 专用）：附件同步到 Kali 宿主侧 /data/worker-ws（挂进
+        # 容器 /root/ctf）；worker 的 --kali 工作目录 = 容器内路径。缺省即开，失败自动
+        # 回退 host 模式。比赛路径 bench_mode=False 不启用。
+        sandbox_enabled = bool(self.bench_mode
+                               and self.model_config.get("worker_sandbox") in (None, "container"))
+        remote_base = f"/data/worker-ws/{cid}" if sandbox_enabled else f"/root/ctf/{cid}"
         # 定版：每 worker 独立远程目录 w<idx>（防同题双 worker 文件互踩）
         remote_roots = {i: f"{remote_base}/w{i}" for i in range(len(self._worker_configs(cs)))}
+        kali_cwds = {i: ("/root/ctf" if sandbox_enabled else root)
+                     for i, root in remote_roots.items()}
         for root in remote_roots.values():
             self._sync_attachments(cid, workdir, root)
+        sandboxes: list[tuple[int, Any, Any]] = []  # (idx, tunnel, container_name 由模块管)
 
         # ---- planning（强模型出总体思路）----
         if cs.plan is None:
@@ -348,15 +362,39 @@ class Orchestrator:
         def dispatch(idx: int, cfg: dict[str, str], prompt: str) -> None:
             tag = f"{cfg['model']}:{cfg['thinking']}".replace("/", "_").replace(":", "-")
             log_path = workdir / f"worker_{idx}_{tag}.log"
+            extra_env: dict[str, str] = {
+                "MESSAGE_BUS_FILE": str(bus_path),
+                "WORKER_TAG": tag,
+                "NET_POLICY": "local-only" if self.bench_mode else "",
+                "KB_ENABLED": "1" if self.model_config.get("kb_enabled") else "0",
+            }
+            tunnel = None
+            if sandbox_enabled:
+                try:
+                    import worker_sandbox
+                    worker_sandbox.ensure_iptables()
+                    ep = worker_sandbox.spawn_worker_container(cid, idx)
+                    if ep is not None:
+                        host, port, pw = ep
+                        tunnel = worker_sandbox.SshTunnel(host, port)
+                        extra_env.update({
+                            "KALI_HOST": "127.0.0.1",
+                            "KALI_PORT": str(tunnel.lport),
+                            "KALI_USER": "root",
+                            "KALI_PASSWORD": pw,
+                            "KALI_SUDO": "0",
+                        })
+                        sandboxes.append((idx, tunnel))
+                        print(f"[{cid}] worker {idx} sandbox: container ssh "
+                              f"127.0.0.1:{tunnel.lport} (userns+断网)")
+                    else:
+                        print(f"[{cid}] worker {idx} sandbox spawn failed -> host fallback")
+                except Exception as e:
+                    print(f"[{cid}] worker {idx} sandbox error {e} -> host fallback")
             cmd = (self.pi_cmd + ["--model", cfg["model"], "--thinking", cfg["thinking"],
-                                  "--mode", "rpc", "--kali", remote_roots[idx],
+                                  "--mode", "rpc", "--kali", kali_cwds[idx],
                                   "--cid", cid])
-            proc = start_worker_rpc(cmd, workdir, log_path,
-                                    extra_env={"MESSAGE_BUS_FILE": str(bus_path),
-                                               "WORKER_TAG": tag,
-                                               "NET_POLICY": "local-only" if self.bench_mode else "",
-                                               "KB_ENABLED":
-                                                   "1" if self.model_config.get("kb_enabled") else "0"})
+            proc = start_worker_rpc(cmd, workdir, log_path, extra_env=extra_env)
             procs[proc] = {**cfg, "log": log_path, "idx": idx,
                            "proc": proc, "agent_ends": 0, "log_offset": 0}
             starts[proc] = time.time()
@@ -485,6 +523,15 @@ class Orchestrator:
                 cs.transition(STATUS_NEEDS_HINT)
                 self.board.save()
             print(f"[{cid}] unsolved; will auto-continue next round")
+
+        # ---- worker 容器沙箱回收（无论解没解，收隧道+杀容器，不留残留） ----
+        for idx, tunnel in sandboxes:
+            try:
+                tunnel.close()
+                import worker_sandbox
+                worker_sandbox.kill_worker_container(cid, idx)
+            except Exception as e:
+                print(f"[{cid}] sandbox teardown w{idx} error: {e}")
 
     # ---------- 人工请求协议（看板/人工通过文件与本进程通信，无锁竞态） ----------
     def _process_requests(self) -> None:

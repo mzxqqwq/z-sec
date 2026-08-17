@@ -435,17 +435,19 @@ export default function (pi: ExtensionAPI) {
 	const NET_BLOCK_RE = /\b(curl|wget|git\s+(clone|ls-remote|fetch|pull)|pip(3)?\s+(install|download)|npm(\s|$)|npx|ssh\b|scp\b|telnet\b|aria2c\b|nslookup\b|dig\b|getent\s+hosts|apt(-get)?\b|apk\s+add|brew\b|cargo\b|gem\s+install|go\s+(get|install|mod)|cpan\b|podman\b|docker\b|ctr\b|nerdctl\b|containerd\b)\b/i;
 	const PY_NET_RE = /python3?\b.*\b(urllib|requests|socket|http\.client)\b/i;
 	const LOCAL_NET_RE = /\b(nc|ncat|netcat|socat)\b/i;
+	// 容器沙箱模式：worker 在独立容器内，靶机 = 宿主机回环的 10.0.2.2 别名
+	const LOCAL_HOST_RE = /\b127\.0\.0\.1\b|\blocalhost\b|\b10\.0\.2\.2\b/;
 
 	function netBlocked(command: string): string | null {
 		if (process.env.NET_POLICY !== "local-only") return null;
-		if (PY_NET_RE.test(command) && !/\b127\.0\.0\.1\b|\blocalhost\b/.test(command)) {
+		if (PY_NET_RE.test(command) && !LOCAL_HOST_RE.test(command)) {
 			return "（benchmark 网络封锁）禁止用 python urllib/requests/socket 访问外网";
 		}
 		if (NET_BLOCK_RE.test(command)) {
-			return "（benchmark 网络封锁）禁止 curl/wget/git/pip/npm/ssh/DNS 等外联——题目材料与本地靶机(127.0.0.1)足够解题";
+			return "（benchmark 网络封锁）禁止 curl/wget/git/pip/npm/ssh/DNS 等外联——题目材料与本地靶机足够解题";
 		}
-		if (LOCAL_NET_RE.test(command) && !/\b127\.0\.0\.1\b|\blocalhost\b/.test(command)) {
-			return "（benchmark 网络封锁）nc/ncat/socat 只允许连接 127.0.0.1/localhost 的本地靶机";
+		if (LOCAL_NET_RE.test(command) && !LOCAL_HOST_RE.test(command)) {
+			return "（benchmark 网络封锁）nc/ncat/socat 只允许连接本地靶机（127.0.0.1/10.0.2.2）";
 		}
 		return null;
 	}
