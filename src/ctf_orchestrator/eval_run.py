@@ -127,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         import json as _json
         model_config = _json.loads(Path(args.config).read_text(encoding="utf-8"))
 
+    # bench_mode=True：eval_run 是 benchmark 专用入口（ctftiny/cybench 离线题库 +
+    # dasctf2025 离线复现 + mock），全部属评测场景 → 工具层封锁外联(NET_POLICY)。
+    # 真实比赛绝不走这里：走 ctf_orchestrator.py（显式 bench_mode=False，允许联网搜索）。
     orch = Orchestrator(ws, platform, DEFAULT_PI_CMD, model_config,
                         max_attempts=args.max_attempts,
                         only={c.strip() for c in args.only.split(",") if c.strip()} or None,

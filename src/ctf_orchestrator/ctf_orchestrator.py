@@ -648,7 +648,8 @@ def main(argv: list[str] | None = None) -> int:
         model_config = {**model_config, "planning_enabled": False}
 
     orch = Orchestrator(Path(args.workspace), platform, pi_cmd, model_config,
-                        only={c.strip() for c in args.only.split(",") if c.strip()} or None)
+                        only={c.strip() for c in args.only.split(",") if c.strip()} or None,
+                        bench_mode=False)  # 真实比赛：允许联网搜索(OSINT)，工具层不封锁
     if model_config.get("kb_enabled"):
         orch.start_kb()
     orch.start_worker_api()
