@@ -175,8 +175,11 @@ class Orchestrator:
         try:
             # Observer 对齐 BreachWeave：独立 pi 会话 + 工具落动作（无 JSON 解析，2026-08-16）
             obs_cfg = model_config.get("observer") or model_config.get("strong")
-            self.supervisor = Supervisor(self.pi_cmd, self.ws, obs_cfg,
-                                         enabled=bool(model_config.get("supervisor_enabled", True)))
+            self.supervisor = Supervisor(
+                self.pi_cmd, self.ws, obs_cfg,
+                enabled=bool(model_config.get("supervisor_enabled", True)),
+                solved_checker=lambda cid: bool(
+                    getattr(self.board.get(cid), "status", "") == STATUS_SOLVED))
         except Exception as e:
             print(f"[supervisor] disabled: {e}")
             self.supervisor = Supervisor(self.pi_cmd, self.ws, None, enabled=False)
@@ -212,6 +215,14 @@ class Orchestrator:
             cs.transition(STATUS_SOLVED)
             self.board.save()
             return "correct", True
+        # 提交失败 → 触发一次强制纠偏审查（BreachWeave hint 触发同款语义）
+        try:
+            ch = self._challenges.get(cid)
+            if ch is not None and self.supervisor.enabled:
+                self.supervisor.maybe_review(cid, ch.raw, cs.board, trigger="submit_fail")
+                print(f"[{cid}] supervisor review queued (submit_fail)")
+        except Exception:
+            pass
         msg = getattr(res, "message", "") if hasattr(res, "message") else ""
         return f"incorrect ({msg})", False
 
@@ -631,6 +642,14 @@ class Orchestrator:
                     cid = str(payload.get("cid", ""))
                     ch = orch._challenges.get(cid)
                     hint = orch.platform.get_hint(ch) if ch is not None else "该题无官方提示"
+                    # 取过 hint → 触发一次强制纠偏审查（BreachWeave observer-loop 的 hint 触发）
+                    try:
+                        cs = orch.board.get(cid)
+                        if ch is not None and cs is not None and orch.supervisor.enabled:
+                            orch.supervisor.maybe_review(cid, ch.raw, cs.board, trigger="hint")
+                            print(f"[worker-api] supervisor review queued (hint {cid})")
+                    except Exception:
+                        pass
                     self._json(200, {"hint": hint})
                 else:
                     self._json(404, {"error": "not found"})

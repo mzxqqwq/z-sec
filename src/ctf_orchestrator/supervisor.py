@@ -41,7 +41,8 @@ class Supervisor:
 
     def __init__(self, pi_cmd: list[str], workdir: Path,
                  observer_cfg: Optional[dict[str, str]] = None,
-                 enabled: bool = True) -> None:
+                 enabled: bool = True,
+                 solved_checker: Optional[Any] = None) -> None:
         # pi_cmd 形如 [node, cli.js, --provider deepseek, -e kali.ts, -e loop-detect.ts]；
         # 观察者会话只取第一个 -e 之前的公共前缀（node/cli/provider），换自己的扩展
         base: list[str] = []
@@ -55,7 +56,9 @@ class Supervisor:
         self.model = str(cfg.get("model") or DEFAULT_OBSERVER_CFG["model"])
         self.thinking = str(cfg.get("thinking") or DEFAULT_OBSERVER_CFG["thinking"])
         self.enabled = enabled
-        self._state: dict[str, dict[str, Any]] = {}   # cid -> {since_review, last_reminder_round, last_reminder_msg}
+        # 已解守卫：回调 cid -> bool（编排器传 lambda board.get(cid).status == solved）
+        self.solved_checker = solved_checker
+        self._state: dict[str, dict[str, Any]] = {}   # cid -> {since_review, last_reminder_round, last_reminder_msg, last_reminder_fp}
         # 修复（2026-08-17）：feed 必须按 (cid, log_path) 隔离——此前同一 cid 的两个
         # worker 日志共用一个 offset，seek 到错误位置，轮次/工具事件被漏读或重复计数
         # （BreachWeave 调研发现的"漏事件"根因）。
@@ -277,12 +280,13 @@ class Supervisor:
                     "memory": list(board.get("memory", []) or [])}
         prompt = self._build_prompt(cid, challenge_raw, board, rounds, trigger)
         threading.Thread(target=self._review_async,
-                         args=(cid, board, snapshot, prompt, total, st),
+                         args=(cid, board, snapshot, prompt, total, st, rounds),
                          daemon=True).start()
         return False, None
 
     def _review_async(self, cid: str, board: dict[str, Any], snapshot: dict[str, Any],
-                      prompt: str, total: int, st: dict[str, Any]) -> None:
+                      prompt: str, total: int, st: dict[str, Any],
+                      rounds: list[dict[str, Any]]) -> None:
         """后台审查：起观察者会话 → 合并看板 → 记提醒。所有共享状态加锁。"""
         try:
             new_board, reminder = self._run_observer(cid, snapshot, prompt)
@@ -305,15 +309,32 @@ class Supervisor:
                     self._board_dirty.add(cid)
                     print(f"[supervisor] {cid} board updated "
                           f"(ideas={len(ideas)}, memory={len(memory)})")
-            # 提醒冷却 + 指纹去重（BreachWeave observer-loop.ts:72-106 语义）
+            # 提醒去重（对齐 BreachWeave observer-loop.ts:72-106）：
+            # ① 冷却 6 轮；② 消息完全相同；③ activity 指纹相同（最近 3 轮工具序列没变 =
+            # 模型在原地打转，语义相近的提醒不重发）；④ 已解不再发。
             if reminder:
-                within_cooldown = (total - st["last_reminder_round"]) < REMINDER_COOLDOWN_ROUNDS
-                same_msg = reminder == st["last_reminder_msg"]
-                if within_cooldown or same_msg:
+                if self.solved_checker and self.solved_checker(cid):
                     reminder = None
                 else:
-                    st["last_reminder_round"] = total
-                    st["last_reminder_msg"] = reminder
-                    self._pending_reminders[cid] = reminder
+                    within_cooldown = (total - st["last_reminder_round"]) < REMINDER_COOLDOWN_ROUNDS
+                    same_msg = reminder == st["last_reminder_msg"]
+                    fp = self._activity_fingerprint(rounds)
+                    same_activity = fp and fp == st.get("last_reminder_fp")
+                    if within_cooldown or same_msg or same_activity:
+                        reminder = None
+                    else:
+                        st["last_reminder_round"] = total
+                        st["last_reminder_msg"] = reminder
+                        st["last_reminder_fp"] = fp
+                        self._pending_reminders[cid] = reminder
             if new_board is None:
                 print(f"[supervisor] {cid} observer session failed (fallback NO_CHANGE)")
+
+    @staticmethod
+    def _activity_fingerprint(rounds: list[dict[str, Any]]) -> str:
+        """最近 3 轮的 (工具名, is_error) 序列指纹——活动没变说明在原地打转。"""
+        sig: list[str] = []
+        for rnd in rounds[-3:]:
+            for tl in (rnd.get("tool_logs") or [])[-6:]:
+                sig.append(f"{tl.get('tool_name', '?')}:{1 if tl.get('is_error') else 0}")
+        return "|".join(sig)

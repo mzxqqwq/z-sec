@@ -78,7 +78,11 @@ function saveBoard(b: Board): Board {
 	};
 	try {
 		fs.mkdirSync(pathmod.dirname(boardPath), { recursive: true });
-		fs.writeFileSync(boardPath, JSON.stringify(out, null, 1), "utf-8");
+		// 原子写（tmp + rename）：观察者被超时强杀时不会留下截断的 board.json
+		// （对齐 BreachWeave memory.ts 的 atomicWriteJson）
+		const tmp = `${boardPath}.tmp-${process.pid}`;
+		fs.writeFileSync(tmp, JSON.stringify(out, null, 1), "utf-8");
+		fs.renameSync(tmp, boardPath);
 	} catch {
 		/* 落盘失败也返回内存态，让编排器至少拿到本次结果 */
 	}
