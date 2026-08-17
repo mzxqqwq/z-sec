@@ -31,9 +31,18 @@
 - [x] `dasctf_client.py` 与 `preflight.py` 改为从配置文件读取账号（env 兜底）
 - [x] 移除中转站 provider：`config/agent.json` + `~/.pi/agent/models.json` + `config/secrets.json` + `src/tools` 残留脚本，引用零命中
 - [x] `config/agent.json` 预置「大模型网关」provider 占位位（8/18 拿到平台文档后替换真实白名单 URL）
-- [ ] benchmark 回归冒烟：并发 spawn 4/4、iptables 8 条、24 个 cybench 靶机可达
-- [ ] `preflight.py` 全绿
+- [ ] benchmark 回归冒烟：iptables 9 行/桥段 2 条 ✅、24/24 靶机存活 ✅；沙箱内 10.0.2.2 探测脚本 bug（bash -c 单引号吞变量）已修，待用户需要时重跑
+- [x] `preflight.py` 全绿 13/13（2026-08-17）
 - [x] preflight 孤儿 worker 判定收紧为 coding-agent（npx/@playwright/mcp 误报修复）
+
+## 四·补（8/17 用户追加：比赛文件准备，已提交 05bff57）
+
+- [x] `config/match.json` 比赛模式独立配置（host 沙箱关闭/并行 3/--model-config 用）
+- [x] 比赛入口 `ctf_orchestrator.py` base_url 改读配置文件（env 兜底，默认白名单域）
+- [x] `probe_platform.py` --base-url 默认读配置文件
+- [x] `docs/PLATFORM-API.md` 8/18 平台对接工作表（认证/端点/网关/flag 剥壳/动态靶机）
+- [x] `docs/RACEDAY.md` 全面更新（启动命令、网关硬门禁、提交纪律、时间策略、速查）
+- [x] `docs/SECRETS-CHECKLIST.md` 补 dasctf 账号段说明
 
 ## 五、阶段 1（8/18 09:00）——平台对接
 
