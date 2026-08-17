@@ -85,7 +85,7 @@ nmap/sqlmap/binwalk/john/hashcat/radare2 的 Kali Linux 上（远程）。
   卡住时可用 get_hint 工具获取官方提示。仅当这两个工具不可用时，才用 "FLAG: <flag内容>" 一行输出。
 - 同题有另一个 worker 在并行解题：每几步调用一次 check_findings 工具查看它的新发现，
   避免重复它已排除的方向；但它的发现是参考，与你的实测冲突时以实测为准。
-
+{match_rules_section}
 {plan_section}
 {continuation_section}
 {board_section}
@@ -98,6 +98,17 @@ BENCH_NET_NOTICE = """\
 【benchmark 网络封锁】本场为能力评测：严禁联网搜索题目/题解（curl/wget/git/pip/外联
 命令会被工具层拦截并报错）。题目附件 + 本地靶机（127.0.0.1）足以解题，请完全依赖
 自己的分析。这是硬性要求，不要浪费时间尝试绕过。"""
+
+# 比赛模式专用纪律条款（benchmark 不注入：bench 有网络封锁+审计，条款不适用）
+MATCH_RULES_SECTION = """\
+【比赛纪律（测试赛/正式赛适用，硬性要求）】
+- 目标边界：只与题目信息给出的目标交互。严禁扫描、探测、攻击比赛平台本身（登录/后台/
+  非题目页面），也严禁对平台做任何爆破——违反会连累整队封号。
+- 提交纪律：只提交有把握的完整 flag（优先 submit_flag 工具）；平台有提交冷却与封禁
+  机制，禁止爆破式连续乱猜，猜错的 flag 不要反复重提。
+- 搜索定位：本场是全新题目，网上没有现成 wp。联网搜索只用于查标准技术资料
+  （工具文档、已知 CVE、公开库用法、协议规范），不要花时间搜题解。
+"""
 
 CONTINUATION_MESSAGE = """\
 【续跑提示】你之前的一次尝试没有解出这道题。继续当前任务：
@@ -319,8 +330,9 @@ class Orchestrator:
             reminder_section=reminder_section,
             human_hints=self._hints(cid),
             net_policy_section=("\n" + BENCH_NET_NOTICE) if self.bench_mode else "",
-            net_fallback=("" if self.bench_mode else "，再联网搜索公开题解交叉验证"),
-            net_fallback_dead=("" if self.bench_mode else "，联网找公开题解验证"))
+            net_fallback=("" if self.bench_mode else "，需要标准技术资料（工具文档/已知 CVE/协议规范）时可联网查证"),
+            net_fallback_dead=("" if self.bench_mode else "，需要标准技术资料时可联网查证"),
+            match_rules_section=("" if self.bench_mode else "\n" + MATCH_RULES_SECTION))
 
         configs = self._worker_configs(cs)
         print(f"[{cid}] race: {len(configs)} workers "
@@ -364,11 +376,12 @@ class Orchestrator:
                 solved = True
                 print(f"[{cid}] solved via worker submit tool; stopping race")
                 break
-            # ---- Supervisor 旁路审查（6 轮节奏，只纠偏不杀 worker）----
+            # ---- Supervisor 旁路审查（6 轮节奏，异步不阻塞；只纠偏不杀 worker）----
             for meta in procs.values():
                 self.supervisor.feed_log(cid, meta["log"])
-            changed, reminder = self.supervisor.maybe_review(cid, cs.raw, cs.board)
-            if changed:
+            self.supervisor.maybe_review(cid, cs.raw, cs.board)
+            dirty, reminder = self.supervisor.drain(cid)
+            if dirty:
                 self.board.save()
                 print(f"[{cid}] supervisor updated board "
                       f"(ideas={len(cs.board['ideas'])}, memory={len(cs.board['memory'])})")
@@ -376,6 +389,13 @@ class Orchestrator:
                 cs.triage["supervisor_reminder"] = reminder
                 self.board.save()
                 print(f"[{cid}] supervisor reminder: {reminder[:80]}...")
+                # BreachWeave steer 语义：纠偏即时注入正在跑的 worker，不等下一轮派工
+                for p in procs:
+                    if p.poll() is None:
+                        send_rpc(p, {"type": "prompt",
+                                     "message": "【Observer 纠偏提醒】\n" + reminder,
+                                     "streamingBehavior": "steer"})
+                        print(f"[{cid}] reminder steered to live worker")
 
             # ---- ralph-loop 进程内续跑：agent_end 且未解 → 注入继续（T11，实测 prompt+steer 可触发新回合）----
             for p, meta in procs.items():
@@ -458,15 +478,8 @@ class Orchestrator:
             # ---- race 结束审查（agent_end 等价触发）----
             for lp in live_logs:
                 self.supervisor.feed_log(cid, lp)
-            changed, reminder = self.supervisor.maybe_review(cid, cs.raw, cs.board,
+            self.supervisor.maybe_review(cid, cs.raw, cs.board,
                                                              trigger="race_end")
-            if changed:
-                self.board.save()
-                print(f"[{cid}] supervisor race-end review updated board")
-            if reminder and not cs.triage.get("supervisor_reminder"):
-                cs.triage["supervisor_reminder"] = reminder
-                self.board.save()
-                print(f"[{cid}] supervisor reminder (race-end): {reminder[:80]}...")
             # 未解 → needs_hint；下一轮自动续派（ralph-loop 语义：不放弃）
             if cs.status == STATUS_SOLVING:
                 cs.transition(STATUS_NEEDS_HINT)

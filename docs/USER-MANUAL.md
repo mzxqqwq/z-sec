@@ -2,8 +2,8 @@
 
 > 一份文件讲清：①系统全景与模型架构 ②文件目录结构 ③操作指南（含 UI 全互动流程与
 > "在 UI 里跑 benchmark"端到端步骤）④常见问题排查 ⑤开源前清理。
-> 配套深读：`docs\系统架构说明.md`（新手向）、`docs\定版方案-最终.md`（决策）、
-> `docs\验收报告-0816.md`（本轮改造记录）。
+> 配套深读：`docs\ARCHITECTURE.md`（架构与决策）、`docs\RACEDAY.md`（比赛日）、
+> `docs\BENCHMARK.md`（评测与隔离）。历史调研/复盘在 `docs\_archive\`。
 
 ---
 
@@ -128,22 +128,17 @@
 | drill-config.json | 演练配置 | 归档 |
 | l2-config.json | 模型配置：strong/weak/max_parallel/planning | ✅ |
 
-### docs\ 文档索引
+### docs\ 文档索引（2026-08-17 精简后，只留核心 7 份）
 
 | 文档 | 看什么 |
 |---|---|
-| **使用手册-完整版.md**（本文件） | 操作与 UI |
-| 服务题容器运行.md | benchmark 服务题：拉镜像起容器当靶机（含 showdown 特殊题） |
-| 系统架构说明.md | 新手理解架构（全景图+10 步解题） |
-| 定版方案-最终.md | 最终决策与架构 |
-| PLAN-0816-实施计划.md | 14 任务执行记录 |
-| 验收报告-0816.md | 本轮改造验收 |
-| 源码对标-12问决策.md | 12 问的源码证据与决策 |
-| EVAL-LOG.md | 历次评测成绩与事故 |
-| BENCHMARK-EVAL.md | 题库全景与评测方法 |
-| TEAM-GUIDE.md / RACEDAY-CARD.md / M3-TESTMATCH-PLAYBOOK.md | 团队/比赛日操作 |
-| KALI-INVENTORY.md | Kali 资产清单 |
-| analysis\*.md | 五仓库源码拆解报告（含 BreachWeave） |
+| **USER-MANUAL.md**（本文件） | 操作与 UI |
+| ARCHITECTURE.md | 架构全景 + 10 步解题 + 定版决策记录 + 瓶颈与分工 |
+| RACEDAY.md | 比赛日操作卡 + 测试赛手册 + 比赛模式提示词纪律 |
+| BENCHMARK.md | 题库/评测体系 + 完整性铁律 + 服务题容器 + 网络封锁 + worker 隔离 |
+| INSTALL.md | 依赖安装与启动 |
+| SECRETS-CHECKLIST.md | 开源发布前敏感项核对 |
+| _archive\ | 调研报告/第三方拆解/历史计划与复盘（本地留档，不进 GitHub） |
 
 ---
 
@@ -275,7 +270,7 @@ python src/ctf_orchestrator/eval_run.py --platform ctftiny --only cry-polly-crac
 ### 4.3c 服务题容器运行（起容器当靶机）
 
 服务题的 box 是 CSAW 当年的公网靶机，早下线了。做法：把题目官方镜像拉到 Kali，
-`podman run` 起容器，worker 连 `127.0.0.1:<端口>` 解题。详见 `docs\服务题容器运行.md`。
+`podman run` 起容器，worker 连 `127.0.0.1:<端口>` 解题。详见 `docs\BENCHMARK.md` §三。
 
 - **默认开启，无需任何开关**：跑 benchmark 前把镜像拉好（一次性，
   Kali 上 `sudo bash /root/pull-ctftiny.sh`，已就位），dead 服务题自动起容器当靶机；
@@ -326,7 +321,7 @@ python src/ctf_orchestrator/dashboard.py --workspace D:/ctf-agent/workspace
 ## 六、开源前清理清单
 
 1. 删除 `secrets\`（deepseek.key、kali.json）——已 gitignore，永不上库；
-2. 全库 grep `10.174.153.128`、真实账号密码 → 改占位符（docs/KALI-INVENTORY 等）；
+2. 全库 grep `10.174.153.128`、真实账号密码 → 改占位符（docs/_archive/KALI-INVENTORY 等）；
 3. 删除 `tmp\`、`eval-workspace*\`、`workspace\` 运行时数据；
 4. `pi-mono\`、`*-ref\`、`benchmarks\` 按需剔除或注明来源与许可证；
-5. 检查 `docs\验收报告-0816.md` 中的内部 IP 引用。
+5. 检查 `docs\_archive\验收报告-0816.md` 中的内部 IP 引用。
