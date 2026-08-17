@@ -184,6 +184,7 @@ class Supervisor:
             + "\n\n## Response Contract\n"
               "先用 board_list 查看当前看板；无需修改就回复 NO_CHANGE；"
               "有修改通过工具落地，最终只回复 1-4 条短 bullet。"
+              "看板条目（idea/memory 的 content）与提醒（reminder）一律用中文撰写。"
         )
 
     def _run_observer(self, cid: str, board: dict[str, Any],
