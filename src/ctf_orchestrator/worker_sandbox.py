@@ -32,28 +32,49 @@ def _sh(cmd: str, timeout: int = 300) -> dict[str, Any]:
 
 
 def ensure_iptables() -> bool:
-    """幂等应用 ctfworker 出站封锁（镜像构建完、跑分前调用）。"""
-    rules = [
-        f"-A OUTPUT -m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
+    """幂等应用 ctfworker 出站封锁。直接 -F OUTPUT 再按序重建（该链只含本组规则，
+    已核验；-D 逐条清理不可靠——iptables 归一化后 -D 可能匹配失败残留旧规则，
+    实测残留 REJECT 会把 rootlessport 端口转发一起掐死）。
+
+    实测约束（2026-08-17 二分验证）：不能对 ctfworker 全封 127.0.0.0/8——
+    rootlessport/slirp 的端口转发内部依赖 loopback 随机端口，全封会把 -p 发布端口
+    也掐死（容器在、sshd 在，但宿主连不上）。因此：
+    - 10.0.2.0/24（slirp 内部）、22000-22499（靶机）、23100-23199（回连）放行；
+    - 127/8 只拒敏感宿主端口 22/80/5000（sshd/nginx/REST）；
+    - 外网（非 loopback）一律 REJECT——这是真正的断网封锁。"""
+    specs = [
+        "-m owner --uid-owner ctfworker -d 10.0.2.0/24 -j ACCEPT",
+        f"-m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
         f"--dport 22000:22499 -j ACCEPT",
-        f"-A OUTPUT -m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
+        f"-m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
         f"--dport {CALLBACK_PORTS[0]}:{CALLBACK_PORTS[1]} -j ACCEPT",
-        "-A OUTPUT -m owner --uid-owner ctfworker -d 127.0.0.0/8 -j REJECT",
-        "-A OUTPUT -m owner --uid-owner ctfworker -j REJECT",
+        "-m owner --uid-owner ctfworker -d 127.0.0.0/8 -p tcp "
+        "-m multiport --dports 22,80,5000 -j REJECT",
+        "-m owner --uid-owner ctfworker -d 127.0.0.0/8 -j ACCEPT",
+        "-m owner --uid-owner ctfworker -j REJECT",
     ]
-    for rule in rules:
-        r = _sh(f"iptables -C OUTPUT {rule} 2>/dev/null || iptables -A OUTPUT {rule}", timeout=60)
+    r = _sh("iptables -F OUTPUT && echo flushed", timeout=60)
+    if not r.get("success") or "flushed" not in str(r.get("stdout", "")):
+        print("[sandbox] iptables flush failed:", r.get("stderr", "")[:120])
+        return False
+    for spec in specs:
+        r = _sh(f"iptables -A OUTPUT {spec}", timeout=60)
         if not r.get("success"):
-            print(f"[sandbox] iptables rule failed: {rule}")
+            print(f"[sandbox] iptables rule failed: {spec} err={r.get('stderr', '')[:120]}")
             return False
     print("[sandbox] iptables egress lock applied (uid ctfworker)")
     return True
 
 
 def alloc_host_port() -> int:
-    r = _sh(f"p={PORT_BASE}; for ((i=0;i<{PORT_SPAN};i++)); do "
-            f"if ! (exec 3<>/dev/tcp/127.0.0.1/$((p+i))) 2>/dev/null; then "
-            f"echo $((p+i)); exit 0; fi; done; echo 0", timeout=60)
+    """选一个"秒拒"的空闲端口。僵尸 rootlessport 监听器会让 connect 挂起（实测）——
+    挂起(124)=当作占用跳过，只接受立即被 RST(失败) 的端口。"""
+    r = _sh(
+        f"p={PORT_BASE}; for ((i=0;i<{PORT_SPAN};i++)); do "
+        f"timeout 1 bash -c '(exec 3<>/dev/tcp/127.0.0.1/'$((p+i))') 2>/dev/null'; st=$?; "
+        f"if [ $st -eq 0 ]; then echo B; elif [ $st -eq 124 ]; then echo H; "
+        f"else echo F; fi | grep -q '^F$' && {{ echo $((p+i)); exit 0; }}; "
+        f"done; echo 0", timeout=240)
     try:
         return int((r.get("stdout", "0") or "0").strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -63,26 +84,36 @@ def alloc_host_port() -> int:
 def spawn_worker_container(cid: str, idx: int) -> Optional[tuple[str, int, str]]:
     """起一个 worker 容器，返回 (host, port, password) 供 SSH 隧道；失败返回 None。"""
     password = secrets.token_urlsafe(18).replace("-", "x").replace("_", "y")
-    hp = alloc_host_port()
-    if not hp:
-        print(f"[sandbox] {cid}/w{idx} no free port")
-        return None
     ws = SANDBOX_WS_HOST / cid / f"w{idx}"
     _sh(f"mkdir -p -m 777 {ws} && chown -R ctfworker:ctfworker {ws}", timeout=60)
     name = f"ws-{cid[:32]}-{idx}".lower()
-    r = _sh(f"runuser -u ctfworker -- podman rm -f {name} >/dev/null 2>&1; true; "
-            f"runuser -u ctfworker -- podman run -d --rm --name {name} "
-            f"--network slirp4netns:allow_host_loopback=true "
-            f"-p 127.0.0.1:{hp}:22 -e WORKER_PASS={password} "
-            f"-v {ws}:/root/ctf --cap-drop=ALL --cap-add=SYS_PTRACE --cap-add=NET_RAW "
-            f"--security-opt no-new-privileges {SANDBOX_IMG}", timeout=300)
-    out = r.get("stdout", "") + r.get("stderr", "")
-    if not r.get("success") or "Error" in out:
-        print(f"[sandbox] {cid}/w{idx} run failed: {out[-200:]}")
+    for attempt in range(2):
+        hp = alloc_host_port()
+        if not hp:
+            print(f"[sandbox] {cid}/w{idx} no free port")
+            return None
+        r = _sh(f"runuser -u ctfworker -- podman rm -f {name} >/dev/null 2>&1; true; "
+                f"runuser -u ctfworker -- podman run -d --rm --name {name} "
+                f"--network slirp4netns:allow_host_loopback=true "
+                f"-p 127.0.0.1:{hp}:22 -e WORKER_PASS={password} "
+                f"-v {ws}:/root/ctf --cap-drop=ALL "
+                # sshd 最小能力（chroot privsep/会话 setuid/绑 22 端口）+ 解题必需（gdb 的
+                # SYS_PTRACE、nmap 半开扫描的 NET_RAW）；无 NET_ADMIN/SYS_ADMIN/DAC_READ_SEARCH。
+                f"--cap-add=SYS_PTRACE --cap-add=NET_RAW --cap-add=NET_BIND_SERVICE "
+                f"--cap-add=SYS_CHROOT --cap-add=SETUID --cap-add=SETGID "
+                f"--cap-add=CHOWN --cap-add=DAC_OVERRIDE --cap-add=FOWNER "
+                f"--cap-add=FSETID --cap-add=AUDIT_WRITE --cap-add=KILL "
+                f"--security-opt no-new-privileges {SANDBOX_IMG}", timeout=300)
+        out = r.get("stdout", "") + r.get("stderr", "")
+        if r.get("success") and "Error" not in out and out.strip():
+            break
+        print(f"[sandbox] {cid}/w{idx} run attempt {attempt + 1} failed: {out[-200:]}")
+        hp = 0
+    if not hp:
         return None
     for _ in range(40):
-        r2 = _sh(f"(exec 3<>/dev/tcp/127.0.0.1/{hp}) 2>/dev/null && echo OPEN || echo CLOSED",
-                 timeout=30)
+        r2 = _sh(f"timeout 2 bash -c '(exec 3<>/dev/tcp/127.0.0.1/{hp}) 2>/dev/null' && "
+                 f"echo OPEN || echo CLOSED", timeout=30)
         if "OPEN" in r2.get("stdout", ""):
             print(f"[sandbox] {cid}/w{idx} container up ({name} -> 127.0.0.1:{hp})")
             return ("127.0.0.1", hp, password)
@@ -98,8 +129,9 @@ def kill_worker_container(cid: str, idx: int) -> None:
 
 
 def cleanup_stale() -> None:
-    """跑分开始前清理上一 run 残留的 worker 容器。"""
-    _sh("runuser -u ctfworker -- podman rm -af >/dev/null 2>&1; true", timeout=120)
+    """跑分开始前清理上一 run 残留的 worker 容器与僵尸 rootlessport。"""
+    _sh("runuser -u ctfworker -- podman rm -af >/dev/null 2>&1; "
+        "pkill -9 -u ctfworker -f rootlessport 2>/dev/null; true", timeout=120)
 
 
 class SshTunnel:
