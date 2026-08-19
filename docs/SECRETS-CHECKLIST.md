@@ -55,7 +55,7 @@ env/
 
 > 团队机器路径/内网 IP 各不相同，发布前应改为**环境变量或占位符**（如 `%USERPROFILE%`、`<KALI_IP>`、`<REPO>`、`os.environ.get("KALI_API_URL")`）。
 
-### 2.1 内网 Kali IP `10.174.153.128`（✅ src 已处理，2026-08-16；docs 待替换占位符）
+### 2.1 内网 Kali IP `<KALI_IP>`（✅ src 已处理，2026-08-16；docs 待替换占位符）
 
 `src/` **已全部改为读 `KALI_API_URL` 环境变量**（默认值兜底，不影响现有运行）：
 `workers.py` 提供 `kali_api_url()`，dashboard / eval_run / eval_platform / preflight /
@@ -72,9 +72,9 @@ revival 均已接入；`run-pi.ps1` 与 `ctf_orchestrator_v1.py.bak` 本来就�
 - `docs/使用手册-完整版.md:28,147,311,322`
 - `docs/定版方案-最终.md:40`
 
-### 2.2 绝对用户路径 `C:\Users\86173`（应改 `%USERPROFILE%` / `~`）
+### 2.2 绝对用户路径 `%USERPROFILE%`（应改 `%USERPROFILE%` / `~`）
 
-- `docs/PLAN-0816-实施计划.md:127`（`C:\Users\86173\.pi\agent\models.json`）
+- `docs/PLAN-0816-实施计划.md:127`（`%USERPROFILE%\.pi\agent\models.json`）
 - `docs/使用手册-完整版.md:47`（同上）
 - `src/pi-ext/node_modules/**`（`cpu-features/build/...vcxproj`、`ssh2/lib/protocol/crypto/build/sshcrypto.vcxproj` 等 node-gyp 构建产物）——已被 `src/pi-ext/node_modules/` 忽略，无需处理，但删除该目录前 `git status` 会看不到它们。
 
@@ -125,7 +125,7 @@ revival 均已接入；`run-pi.ps1` 与 `ctf_orchestrator_v1.py.bak` 本来就�
 - `src/pi-ext/node_modules/**`（ssh2 等第三方测试 fixture 的假密码 `'hi mom'`/`'1234'` 等，已 gitignore）
 - `src/tools/pull-ctftiny.sh`、`pull-service-images.sh`、`service-manifest.json`、`service-images.txt` 中的 `password_checker` 是**题目名**，非密码。
 
-> 结论：源码/文档没有明文 key 或密码；真正要替换的是 **内网 IP + 三处绝对路径（`C:\Users\86173`、`D:\ctf-agent`、`D:\ctf-agent\secrets`）**，都改环境变量/占位符即可。
+> 结论：源码/文档没有明文 key 或密码；真正要替换的是 **内网 IP + 三处绝对路径（`%USERPROFILE%`、`D:\ctf-agent`、`D:\ctf-agent\secrets`）**，都改环境变量/占位符即可。
 
 ---
 
@@ -144,7 +144,7 @@ git ls-files | Select-String -Pattern 'secret|\.key$|kali\.json|workspace|node_m
 # 内网 Kali IP
 git grep -n "10\.174\.153\.128"
 # 用户绝对路径（团队机器不同，改为 %USERPROFILE%）
-git grep -n -e "C:\\Users\\86173" -e "C:/Users/86173"
+git grep -n -e "C:\\Users\\<USER>" -e "C:/Users/<USER>" -e "%USERPROFILE%"
 # 仓库绝对根路径（改为 <REPO> 或运行时推导）
 git grep -n -e "D:\\ctf-agent" -e "D:/ctf-agent"
 # 密钥绝对路径
@@ -173,7 +173,7 @@ git check-ignore -v secrets/deepseek.key secrets/kali.json config/secrets.json t
 ```powershell
 git add -A
 git diff --cached --name-only          # 过一遍将要提交的文件清单，肉眼确认无敏感文件
-git diff --cached | Select-String -Pattern "sk-[A-Za-z0-9]{20,}|10\.174\.153\.128|C:\\Users\\86173"
+git diff --cached | Select-String -Pattern "sk-[A-Za-z0-9]{20,}|10\.174\.153\.128|C:\\Users\\<USER>"
 git reset                               # 确认无误后再正式提交
 ```
 

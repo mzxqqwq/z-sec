@@ -25,7 +25,7 @@
 └───────────────────────────────────────────────────────────────────────┘
          │ SSH (root，secrets/kali.json)
          ▼
-┌─ Kali（10.174.153.128，NAT）──────────────────────────────────────────┐
+┌─ Kali（<KALI_IP>，NAT）──────────────────────────────────────────┐
 │ /root/ctf/<cid>/w<idx>/   每 worker 独立工作目录（attachments/）       │
 │ 工具链：pwntools/angr/z3/sympy/fpylll/blutter/stegseek/jadx/...        │
 │ SageMath 10.9（podman 容器包装 /usr/local/bin/sage）+ pwndbg + gdb 17  │
@@ -51,7 +51,7 @@
 兼容旧习惯：`secrets\deepseek.key` 仍作 deepseek key 的兜底；`--config <json>` 命令行
 参数仍可显式覆盖。
 
-**加 GPT/Claude**：改 `C:\Users\86173\.pi\agent\models.json` 加 provider（key 用环境变量占位符），
+**加 GPT/Claude**：改 `%USERPROFILE%\.pi\agent\models.json` 加 provider（key 用环境变量占位符），
 再把 `l2-config.json` 的 `strong.model` 换成新模型 id：
 
 ```jsonc
@@ -146,7 +146,7 @@
 
 1. `pi-mono` 已构建（cli.js 存在）；`src\pi-ext\node_modules` 有 ssh2/typebox（T1 装过）。
 2. `secrets\deepseek.key`（DeepSeek key）、`secrets\kali.json`（Kali SSH 凭据，kali 用户+sudo）。
-3. Kali SSH 可达：`ssh kali@10.174.153.128`（密码见 kali.json）。
+3. Kali SSH 可达：`ssh kali@<KALI_IP>`（密码见 kali.json）。
 4. UI 已构建：`ui\dist` 存在（改前端后需 `cd ui && npm run build` 重建）。
 5. 体检：`python src/ctf_orchestrator/preflight.py`（赛前必跑）。
 
@@ -310,7 +310,7 @@ python src/ctf_orchestrator/dashboard.py --workspace D:/ctf-agent/workspace
 | 症状 | 排查 |
 |---|---|
 | worker 秒退/无输出 | 看 `<ws>\challenges\<cid>\worker_*.log` 开头；`Unknown option` = 命令构造问题（不应再出现）；检查 Kali SSH |
-| Kali 工具报错 | `ssh kali@10.174.153.128` 手动测；确认 secrets/kali.json 正确；Kali API(5000) 崩不影响 SSH 工具（仅影响 preflight/eval 健康闸门） |
+| Kali 工具报错 | `ssh kali@<KALI_IP>` 手动测；确认 secrets/kali.json 正确；Kali API(5000) 崩不影响 SSH 工具（仅影响 preflight/eval 健康闸门） |
 | UI 空白/404 | 确认 `ui\dist` 存在（没有则 `cd ui && npm run build`）；访问带 `/ui/` 前缀 |
 | 端口被占 | 8088/8089/8099 冲突时看板用 --port 换端口；worker-api/KB 会打印 busy 并降级 |
 | 成本看不到 | 列表成本列来自 worker 日志 usage 聚合（mtime 缓存），跑过题的才显示 |
@@ -321,7 +321,7 @@ python src/ctf_orchestrator/dashboard.py --workspace D:/ctf-agent/workspace
 ## 六、开源前清理清单
 
 1. 删除 `secrets\`（deepseek.key、kali.json）——已 gitignore，永不上库；
-2. 全库 grep `10.174.153.128`、真实账号密码 → 改占位符（docs/_archive/KALI-INVENTORY 等）；
+2. 全库 grep `<KALI_IP>`、真实账号密码 → 改占位符（docs/_archive/KALI-INVENTORY 等）；
 3. 删除 `tmp\`、`eval-workspace*\`、`workspace\` 运行时数据；
 4. `pi-mono\`、`*-ref\`、`benchmarks\` 按需剔除或注明来源与许可证；
 5. 检查 `docs\_archive\验收报告-0816.md` 中的内部 IP 引用。

@@ -6,7 +6,7 @@
 # Prereqs:
 #   D:\ctf-agent\pi-mono built (npm run build:offline)
 #   D:\ctf-agent\secrets\deepseek.key contains the API key
-#   Kali API (default http://10.174.153.128:5000) online
+#   Kali API (default http://<KALI_IP>:5000) online
 #
 # WARNING: PowerShell 5.1 forwards args containing double quotes to node
 # by SPLITTING them into multiple argv (prompt 里的 "FLAG: ..."、题目 JSON、
@@ -26,7 +26,7 @@ if (-not (Test-Path $KeyFile)) { throw "missing $KeyFile (put your DeepSeek API 
 
 $env:DEEPSEEK_API_KEY = (Get-Content $KeyFile -Raw).Trim()
 $env:PI_CODING_AGENT_DIR = "$env:USERPROFILE\.pi\agent"
-if (-not $env:KALI_API_URL) { $env:KALI_API_URL = "http://10.174.153.128:5000" }
+if (-not $env:KALI_API_URL) { $env:KALI_API_URL = "http://<KALI_IP>:5000" }
 
 # Default: builtin deepseek provider + kali extension. Model: deepseek-v4-flash
 # unless the caller passes --model (v4-pro for hard challenges).

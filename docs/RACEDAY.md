@@ -87,7 +87,7 @@
 ## 附录：平台信息速查
 
 - 平台地址：`gcsis.dasctf.com`（8/17 官方手册确认；旧 `game.gcsis.cn` 仅为历史侦察记录）
-- 账号：`config/secrets.json` dasctf 段（中文姓名 + 手机号后四位；密码 `Das#身份证后四位`）
+- 账号：`config/secrets.json` dasctf 段（中文姓名 + 手机号后四位；密码 `密码格式以官方通知为准（见 secrets.json dasctf 段说明）`）
 - flag 提交仅需 `{}` 内内容；每题 50 次提交上限；每队仅一个 Agent 接入平台
 - LLM 白名单端点：DeepSeek `api.deepseek.com`（`/chat/completions`、`/v1/chat/completions`、`/responses`、`/anthropic/v1/messages`）及各厂商表列端点；平台大模型网关接入方式见《大模型网关接入》文档
 - 早期侦察记录（2026-08-15）：`game.gcsis.cn` → 腾讯云 CDN（cdn.dnsv1.com.cn，DNSPod 调度）；无 api./test./ai./admin. 子域 → API 大概率同域 `/api/*`（注意 CDN 的 WAF/限频行为）

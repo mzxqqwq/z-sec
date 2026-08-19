@@ -43,7 +43,7 @@ try:
 except Exception:
     pass
 
-KALI_API = os.environ.get("KALI_API_URL", "http://10.174.153.128:5000")
+KALI_API = os.environ.get("KALI_API_URL", "http://<KALI_IP>:5000")
 WORKER_TIMEOUT = 1500  # 单个 worker 上限 25 分钟
 
 DEFAULT_PI_CMD = [

@@ -125,7 +125,7 @@ python src/ctf_orchestrator/eval_run.py --platform ctftiny --config src/ctf_orch
 ```jsonc
 // <REPO>/secrets/kali.json —— Kali SSH 凭据（已 gitignore，队友需自建，见 SECRETS-CHECKLIST §4）
 {
-  "host": "<KALI_IP>",        // 例："10.174.153.128"
+  "host": "<KALI_IP>",        // 例："<KALI_IP>"
   "port": 22,
   "username": "kali",          // 用 kali 用户登录，命令经 sudo 提权到 root
   "password": "<密码>",

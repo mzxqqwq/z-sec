@@ -219,7 +219,7 @@ def cleanup_orphans(pattern: str = "coding-agent") -> int:
 
 # ---- Kali REST 地址（健康闸门/评测探测用；工具调用已走 SSH）----
 # 队友机器 IP 不同：设置环境变量 KALI_API_URL 覆盖（如 http://192.168.1.10:5000）
-KALI_API_URL_DEFAULT = "http://10.174.153.128:5000"
+KALI_API_URL_DEFAULT = "http://<KALI_IP>:5000"
 
 
 def kali_api_url() -> str:
