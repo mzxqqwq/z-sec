@@ -3,7 +3,8 @@
 ctf_orchestrator.py —— CTF 编排器 v3（AK 导向定版，2026-08-16）
 
 定版决策（docs/定版方案-最终.md）：
-- 删除 triage / races 预算 / dead 状态 / 僵局击杀 / 提交纪律（submit.py parked，平台规则回来再加）
+- 删除 triage / races 预算 / dead 状态 / 僵局击杀（提交纪律 submit.py 已于 2026-08-19 接回：
+  平台规则确认——每题 50 次提交硬上限）
 - 每道题 1 强 + 1 弱 worker 竞速；3 题并发；解不出自动续派（ralph-loop 语义）
 - 监督与纠偏由 supervisor.py（Observer 移植）负责，编排器不杀 worker
 模块：state.py（黑板）/ workers.py（进程+解析）/ planning.py（总体思路）
@@ -32,6 +33,7 @@ from platform import BasePlatform, MockHttpPlatform  # noqa: E402
 from planning import Planner  # noqa: E402
 from supervisor import Supervisor  # noqa: E402
 from message_bus import ChallengeMessageBus  # noqa: E402
+from submit import SubmissionPolicy  # noqa: E402  # 提交纪律（去重/预算/冷却）
 
 WORKER_TIMEOUT = 1500  # 单个 worker 硬上限
 # 直接调 node cli.js，不经 PowerShell：
@@ -162,6 +164,10 @@ class Orchestrator:
         self.max_attempts = max_attempts
         self.board = Board(workspace / "state.json")
         self.only = only
+        # 提交纪律（2026-08-19 平台规则回来接回 submit.py）：
+        # 精确去重 + 错误预算(15) + 递增冷却[0,15,60,180]s + 串行锁。
+        # 平台每题 50 次提交硬上限（超了永久无法提交），客户端预算留足余量防爆破。
+        self.submission = SubmissionPolicy(self._platform_submit, max_wrong_submits=15)
         self._challenges: dict[str, Any] = {}  # cid -> NormalizedChallenge（内存注册表）
         try:
             import agent_config  # 统一配置中心（config/agent.json + Web UI）
@@ -192,7 +198,7 @@ class Orchestrator:
             raise ValueError(f"unknown challenge {cid}")
         return self.platform.submit_flag(ch, flag)
 
-    # ---------- 提交（定版：直接提交，无纪律；平台规则回来后再接 submit.py） ----------
+    # ---------- 提交（走 SubmissionPolicy：去重/预算/冷却；2026-08-19 接回 submit.py） ----------
     @staticmethod
     def _submission_accepted(res: Any) -> bool:
         if hasattr(res, "accepted"):
@@ -202,6 +208,20 @@ class Orchestrator:
         return res is True
 
     def _submit_direct(self, cid: str, flag: str) -> tuple[str, bool]:
+        if self.submission is not None:
+            msg, ok = self.submission.try_submit(self.board, cid, flag)
+            # 平台判错/提交异常 → 触发一次强制纠偏审查（BreachWeave hint 触发同款语义）
+            if not ok and (msg.startswith("incorrect") or msg.startswith("submit error")):
+                try:
+                    ch = self._challenges.get(cid)
+                    cs = self.board.get(cid)
+                    if ch is not None and cs is not None and self.supervisor.enabled:
+                        self.supervisor.maybe_review(cid, ch.raw, cs.board, trigger="submit_fail")
+                        print(f"[{cid}] supervisor review queued (submit_fail)")
+                except Exception:
+                    pass
+            return msg, ok
+        # ---- 旧逻辑兜底（正常不会走到） ----
         cs = self.board.get(cid)
         if cs is None:
             return "unknown challenge", False
@@ -216,14 +236,6 @@ class Orchestrator:
             cs.transition(STATUS_SOLVED)
             self.board.save()
             return "correct", True
-        # 提交失败 → 触发一次强制纠偏审查（BreachWeave hint 触发同款语义）
-        try:
-            ch = self._challenges.get(cid)
-            if ch is not None and self.supervisor.enabled:
-                self.supervisor.maybe_review(cid, ch.raw, cs.board, trigger="submit_fail")
-                print(f"[{cid}] supervisor review queued (submit_fail)")
-        except Exception:
-            pass
         msg = getattr(res, "message", "") if hasattr(res, "message") else ""
         return f"incorrect ({msg})", False
 
