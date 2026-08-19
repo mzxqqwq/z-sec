@@ -114,11 +114,18 @@ def provider_of(model: str) -> Optional[dict[str, Any]]:
 
 
 def _load_secrets() -> dict[str, str]:
+    """provider id → key。只收标量（str/int/float）值；嵌套对象（secrets.json 的
+    dasctf 段）不是 provider key，跳过——否则 str(dict) 变成 repr 字符串，UI 配置页
+    保存一次就会把 dasctf 段破坏（2026-08-19 审查发现）。"""
     try:
         if SECRETS_PATH.exists():
             data = json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                return {str(k): str(v).strip() for k, v in data.items() if str(v).strip()}
+                out: dict[str, str] = {}
+                for k, v in data.items():
+                    if isinstance(v, (str, int, float)) and str(v).strip():
+                        out[str(k)] = str(v).strip()
+                return out
     except (OSError, json.JSONDecodeError):
         pass
     return {}
@@ -143,7 +150,10 @@ def secrets_status() -> dict[str, bool]:
 
 
 def set_secrets(partial: dict[str, str]) -> dict[str, bool]:
-    """写入/删除 provider key（空字符串=删除）。返回新的状态。"""
+    """写入/删除 provider key（空字符串=删除）。返回新的状态。
+
+    注意保留 secrets.json 的 dasctf 段（平台账号/网关配置，非 provider key），
+    否则 UI 保存 api_keys 会把它抹掉（2026-08-19 审查发现）。"""
     have = _load_secrets()
     for pid, key in (partial or {}).items():
         key = str(key or "").strip()
@@ -151,6 +161,13 @@ def set_secrets(partial: dict[str, str]) -> dict[str, bool]:
             have[pid] = key
         else:
             have.pop(pid, None)
+    # 保留 dasctf 段
+    try:
+        raw = json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
+        if isinstance(raw.get("dasctf"), dict):
+            have["dasctf"] = raw["dasctf"]
+    except (OSError, json.JSONDecodeError):
+        pass
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = SECRETS_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(have, ensure_ascii=False, indent=2), encoding="utf-8")

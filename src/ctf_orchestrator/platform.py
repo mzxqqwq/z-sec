@@ -167,9 +167,13 @@ def _to_float(v: Any) -> Optional[float]:
 
 
 def _strip_flag(flag: str) -> str:
-    """flag 提交仅需 {} 内内容（官方手册）；worker 给完整 DASCTF{...} 时剥壳。"""
+    """flag 提交仅需 {} 内内容（官方手册）；worker 给完整 DASCTF{...} 时剥壳。
+
+    2026-08-19 审查：加词边界锚（^ 或非字母数字下划线前缀），避免误剥
+    `xxx_flag{...}` 这类本身就是答案内容的合法 flag。
+    """
     s = (flag or "").strip()
-    m = re.search(r"(?:DASCTF|flag|CTF)\s*\{([^{}]+)\}\s*$", s, re.I)
+    m = re.search(r"(?:^|[^A-Za-z0-9_])(?:DASCTF|flag|CTF)\s*\{([^{}]+)\}\s*$", s, re.I)
     return m.group(1).strip() if m else s
 
 
@@ -222,6 +226,7 @@ class DasctfPlatform(BasePlatform):
     @staticmethod
     def _conn_text(endpoints: list[dict]) -> tuple[Optional[str], str]:
         first: Optional[str] = None
+        first_proxy: Optional[str] = None
         lines: list[str] = []
         for ep in endpoints or []:
             ips = [str(x) for x in (ep.get("exposeIps") or [])]
@@ -242,23 +247,27 @@ class DasctfPlatform(BasePlatform):
                 host = ips[0]
                 conns = [f"{host}:{p}" for p in ports] or [host]
                 lines.append(f"- 直连: {', '.join(conns)}")
-            if not first and conns:
-                first = conns[0]
+            # 主连接点优先取平台代理（worker 从外部能连）；直连内网 IP 只作兜底
+            if conns:
+                if first is None:
+                    first = conns[0]
+                if is_proxy and proxy_ips and first_proxy is None:
+                    first_proxy = conns[0]
             for u in users:
                 lines.append(f"    账号: {u.get('username')} / 密码: {u.get('password')}")
             if is_proxy:
                 lines.append("    (优先走平台代理)")
             if expire:
                 lines.append(f"    过期时间戳: {expire}")
-        return first, "\n".join(lines)
+        return (first_proxy or first), "\n".join(lines)
 
     def list_challenges(self) -> list[NormalizedChallenge]:
         import time
-        from dasctf_client import ApiError
+        from dasctf_client import ApiError, ClientError
         out: list[NormalizedChallenge] = []
         try:
             groups = self.client.exercise_list()
-        except ApiError as e:
+        except (ApiError, ClientError) as e:
             print(f"[dasctf] exercise-list 失败: {e}")
             return out
         # 靶机配额：本队同时最多 3 台（实测 40409）。
@@ -278,7 +287,7 @@ class DasctfPlatform(BasePlatform):
                 d: dict = {}
                 try:
                     d = self.client.exercise(eid) or {}
-                except ApiError as e:
+                except (ApiError, ClientError) as e:
                     d = {"_error": str(e)}
                 details[eid] = d
                 if bool(d.get("hasSolved") or c.get("hasSolved")):
@@ -312,8 +321,11 @@ class DasctfPlatform(BasePlatform):
                     try:
                         self.client.recover_env(eid)
                         print(f"[dasctf] {eid} 靶机不可达({conn or '无连接点'})，已回收，下轮重建")
-                    except ApiError:
-                        pass
+                    except (ApiError, ClientError):
+                        # 回收失败（网络/平台抖动）：不清 endpoints、不标重建，
+                        # 保持现状下轮再试——否则会超额建机触发 40409（2026-08-19 审查）
+                        print(f"[dasctf] {eid} 靶机不可达但回收失败，保持现状下轮再试")
+                        continue
                     _d = dict(details.get(eid) or {})
                     _d["endpoints"] = []
                     _d["_env_rebuild"] = True
@@ -324,11 +336,11 @@ class DasctfPlatform(BasePlatform):
                 try:
                     self.client.recover_env(eid)
                     print(f"[dasctf] {eid} 已解出，回收环境释放配额")
-                except ApiError:
+                except (ApiError, ClientError):
                     pass
                 try:
                     details[eid] = self.client.exercise(eid) or {}
-                except ApiError:
+                except (ApiError, ClientError):
                     pass
         for g in groups:
             cat = str(g.get("name") or "misc").lower()
@@ -352,7 +364,7 @@ class DasctfPlatform(BasePlatform):
                                 if not detail.get("isNeedCheck") and detail.get("endpoints"):
                                     built_count += 1
                                     break
-                        except ApiError as e:
+                        except (ApiError, ClientError) as e:
                             detail["_env_error"] = str(e)
                     else:
                         detail["_env_wait"] = f"靶机配额已满({MAX_ENV}台)，等待回收后自动启动"
@@ -405,12 +417,12 @@ class DasctfPlatform(BasePlatform):
         return paths
 
     def submit_flag(self, challenge: NormalizedChallenge, flag: str) -> SubmitResult:
-        from dasctf_client import ApiError
+        from dasctf_client import ApiError, ClientError
         try:
             data = self.client.submit_answer(int(challenge.challenge_id), _strip_flag(flag))
             ok = bool(data.get("isCorrect"))
             return SubmitResult(accepted=ok, message="correct" if ok else "wrong", raw=data)
-        except ApiError as e:
+        except (ApiError, ClientError) as e:
             return SubmitResult(accepted=False, message=f"{e.code}: {e.message}", raw={})
 
     def scoreboard(self) -> list[dict[str, Any]]:

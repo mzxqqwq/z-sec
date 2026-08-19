@@ -789,13 +789,24 @@ def main(argv: list[str] | None = None) -> int:
     orch = Orchestrator(Path(args.workspace), platform, pi_cmd, model_config,
                         only={c.strip() for c in args.only.split(",") if c.strip()} or None,
                         bench_mode=False)  # 真实比赛：允许联网搜索(OSINT)，工具层不封锁
-    if model_config.get("kb_enabled"):
-        orch.start_kb()
-    orch.start_worker_api()
-    if args.loop > 0:
-        orch.loop(args.loop)
-    else:
-        orch.run_round()
+    # 进程身份文件：match_admin（Web UI 比赛 Agent 页）靠它收养/停止本进程
+    # （看板重启后 Popen 句柄丢失，run.pid 是唯一可靠的进程定位——2026-08-19 审查发现）
+    pid_file = Path(args.workspace) / "run.pid"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        if model_config.get("kb_enabled"):
+            orch.start_kb()
+        orch.start_worker_api()
+        if args.loop > 0:
+            orch.loop(args.loop)
+        else:
+            orch.run_round()
+    finally:
+        try:
+            if pid_file.exists() and pid_file.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                pid_file.unlink()
+        except OSError:
+            pass
     return 0
 
 

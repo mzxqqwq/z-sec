@@ -48,13 +48,22 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         try:
             resp = urllib.request.urlopen(req, timeout=600)
         except urllib.error.HTTPError as e:
+            # 错误分支同样要封包：Content-Length + Connection: close，
+            # 否则 HTTP/1.1 keep-alive 下客户端等 EOF 挂死（2026-08-19 审查）
+            try:
+                body = e.read()
+            except Exception:
+                body = b""
             self.send_response(e.code)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", e.headers.get("Content-Type", "application/json"))
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
             try:
-                self.wfile.write(e.read())
+                self.wfile.write(body)
             except Exception:
                 pass
+            self.close_connection = True
             return
         except Exception as e:
             self._send_text(502, f"gateway forward failed: {e}")
