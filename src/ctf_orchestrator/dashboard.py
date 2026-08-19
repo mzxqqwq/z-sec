@@ -455,6 +455,39 @@ def api_match_stop():
     return jsonify({"ok": ok, "msg": msg})
 
 
+# ---- 解题报告（report_writer，赛后材料） ----
+@app.get("/api/reports")
+def api_reports():
+    import report_writer
+    reports = WORKSPACE / report_writer.REPORTS_DIR
+    out = []
+    if reports.is_dir():
+        for f in sorted(reports.glob("*.md")):
+            out.append({"cid": f.stem, "name": f.name, "size": f.stat().st_size,
+                        "mtime": f.stat().st_mtime})
+    missing = [c["cid"] for c in state().get("challenges", [])
+               if c.get("status") == "solved"
+               and not (reports / f"{c['cid']}.md").exists()]
+    return jsonify({"reports": out, "missing": missing})
+
+
+@app.get("/api/reports/<cid>")
+def api_report_detail(cid: str):
+    import report_writer
+    p = WORKSPACE / report_writer.REPORTS_DIR / f"{cid}.md"
+    if not p.exists():
+        return jsonify({"ok": False, "msg": f"报告不存在（cid={cid}）"}), 404
+    return jsonify({"ok": True, "cid": cid,
+                    "text": p.read_text(encoding="utf-8", errors="replace")})
+
+
+@app.post("/api/reports/<cid>/generate")
+def api_report_generate(cid: str):
+    import report_writer
+    ok, msg = report_writer.generate_one(cid, WORKSPACE, force=False)
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @app.post("/api/bench/resume/<run_id>")
 def api_bench_resume(run_id: str):
     ok, msg = bench_admin.resume(run_id)
@@ -689,6 +722,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8088)
     args = p.parse_args(argv)
     WORKSPACE = Path(args.workspace)
+    # 解题报告自动生成：独立后台线程（daemon），只读工作区、不阻塞看板/编排器
+    try:
+        import threading
+        import report_writer
+        threading.Thread(target=report_writer.loop,
+                         args=(WORKSPACE, 60.0), daemon=True).start()
+    except Exception as e:
+        print(f"[report] 解题报告后台线程启动失败: {e}")
     app.run(host="127.0.0.1", port=args.port)
     return 0
 
