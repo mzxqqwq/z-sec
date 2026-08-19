@@ -220,6 +220,35 @@ export async function resumeBench(runId: string): Promise<{ ok: boolean; msg: st
   return await r.json()
 }
 
+// ---- 比赛模式（真实平台 dasctf）----
+export interface MatchStatus {
+  status: "idle" | "running" | "done" | "failed"
+  elapsed: number
+  pid?: number | null
+  exit_code?: number | null
+  log_tail: string
+}
+
+export async function fetchMatchStatus(): Promise<MatchStatus> {
+  const r = await fetch("/api/match/status")
+  if (!r.ok) return { status: "idle", elapsed: 0, log_tail: "" }
+  return await r.json()
+}
+
+export async function startMatch(loop: number): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch("/api/match/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ loop }),
+  })
+  return await r.json()
+}
+
+export async function stopMatch(): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch("/api/match/stop", { method: "POST" })
+  return await r.json()
+}
+
 export interface AuditReport {
   run_id: string
   summary: { clean: number; osint: number; cheat: number; total: number }

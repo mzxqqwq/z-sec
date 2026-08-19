@@ -34,3 +34,4 @@ env/
 *.key
 *.log
 src/tools/worker-img/*.tgz
+workspace-match/

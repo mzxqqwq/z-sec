@@ -159,36 +159,210 @@ def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "challenge"
 
 
+def _to_float(v: Any) -> Optional[float]:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _strip_flag(flag: str) -> str:
+    """flag 提交仅需 {} 内内容（官方手册）；worker 给完整 DASCTF{...} 时剥壳。"""
+    s = (flag or "").strip()
+    m = re.search(r"(?:DASCTF|flag|CTF)\s*\{([^{}]+)\}\s*$", s, re.I)
+    return m.group(1).strip() if m else s
+
+
+def _parse_port(p: str) -> str:
+    """端口字段可能是 '80' 或 'http/80'（协议/端口）→ 归一化为纯端口。"""
+    return str(p).rsplit("/", 1)[-1] if "/" in str(p) else str(p)
+
+
+def _attachment_files(attachment: Any) -> list[dict]:
+    """兼容实际返回的多种附件结构：
+    {files:[{name,url,ext}]}（文档示例） / 单对象 {url,name,extension}（实测） / [] / 数组。"""
+    if isinstance(attachment, dict):
+        files = attachment.get("files")
+        if isinstance(files, list):
+            return [f for f in files if isinstance(f, dict)]
+        if attachment.get("url"):
+            return [attachment]
+        return []
+    if isinstance(attachment, list):
+        return [f for f in attachment if isinstance(f, dict) and f.get("url")]
+    return []
+
+
 class DasctfPlatform(BasePlatform):
-    """DASCTF 真实平台适配器（包 dasctf_client；端点到 8/18 测试赛确认后填实）。"""
+    """DASCTF 真实平台适配器（2026-08-19 依据官方《AI Agent API 文档》）。"""
 
     name = "dasctf"
 
     def __init__(self, base_url: str) -> None:
+        import os
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "dasctf_client"))
-        from dasctf_client import DasctfClient
-        self.client = DasctfClient(base_url)
+        from dasctf_client import DasctfClient, load_dasctf_credentials
+        creds = load_dasctf_credentials()
+        access_key = creds.get("access_key") or os.environ.get("DASCTF_ACCESS_KEY", "")
+        self.base_url = base_url.rstrip("/")
+        self.client = DasctfClient(base_url, access_key)
+
+    # ---- endpoints → 可读连接信息 ----
+    @staticmethod
+    def _conn_text(endpoints: list[dict]) -> tuple[Optional[str], str]:
+        first: Optional[str] = None
+        lines: list[str] = []
+        for ep in endpoints or []:
+            ips = [str(x) for x in (ep.get("exposeIps") or [])]
+            ports = [_parse_port(x) for x in (ep.get("ports") or [])]
+            users = ep.get("users") or []
+            mappings = ep.get("portMappings") or []
+            proxy_ips = [str(x) for x in (ep.get("proxyIps") or [])]
+            is_proxy = bool(ep.get("isProxy"))
+            expire = ep.get("expireTime")
+            conns: list[str] = []
+            if is_proxy and proxy_ips:
+                host = proxy_ips[0]
+                pm = {_parse_port(m.get("port")): str(m.get("proxy") or m.get("port"))
+                      for m in mappings if m.get("port")}
+                conns = [f"{host}:{pm.get(p, p)}" for p in ports] or [host]
+                lines.append(f"- 代理连接: {', '.join(conns)}")
+            elif ips:
+                host = ips[0]
+                conns = [f"{host}:{p}" for p in ports] or [host]
+                lines.append(f"- 直连: {', '.join(conns)}")
+            if not first and conns:
+                first = conns[0]
+            for u in users:
+                lines.append(f"    账号: {u.get('username')} / 密码: {u.get('password')}")
+            if is_proxy:
+                lines.append("    (优先走平台代理)")
+            if expire:
+                lines.append(f"    过期时间戳: {expire}")
+        return first, "\n".join(lines)
 
     def list_challenges(self) -> list[NormalizedChallenge]:
-        out = []
-        for row in self.client.challenges():
-            out.append(NormalizedChallenge(
-                platform=self.name,
-                challenge_id=str(row.get("id") or row.get("challenge_id") or row.get("name", "")),
-                name=str(row.get("name") or row.get("title") or ""),
-                category=(row.get("category") or "unknown").lower(),
-                description=row.get("description", ""),
-                points=row.get("points"),
-                raw=row,
-            ))
+        import time
+        from dasctf_client import ApiError
+        out: list[NormalizedChallenge] = []
+        try:
+            groups = self.client.exercise_list()
+        except ApiError as e:
+            print(f"[dasctf] exercise-list 失败: {e}")
+            return out
+        # 靶机配额：本队同时最多 3 台（实测 40409）。已建 = 有 endpoints 的题。
+        MAX_ENV = 3
+        built_count = 0
+        details: dict[int, dict] = {}
+        for g in groups:
+            for c in (g.get("corpus") or []):
+                try:
+                    eid = int(c["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                d: dict = {}
+                try:
+                    d = self.client.exercise(eid) or {}
+                except ApiError as e:
+                    d = {"_error": str(e)}
+                details[eid] = d
+                if d.get("endpoints"):
+                    built_count += 1
+        for g in groups:
+            cat = str(g.get("name") or "misc").lower()
+            for c in (g.get("corpus") or []):
+                try:
+                    eid = int(c["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                detail = dict(details.get(eid) or {})
+                solved = bool(detail.get("hasSolved") or c.get("hasSolved"))
+                # 已解出且占着环境 → 回收配额
+                if solved and detail.get("isNeedInit") and detail.get("endpoints"):
+                    try:
+                        self.client.recover_env(eid)
+                        built_count = max(0, built_count - 1)
+                    except ApiError:
+                        pass
+                    try:
+                        detail = self.client.exercise(eid) or {}
+                    except ApiError:
+                        pass
+                # 需要环境且未就绪 → 配额内启动并轮询
+                if (detail.get("isNeedInit") and not detail.get("endpoints")
+                        and not detail.get("_error")):
+                    if built_count < MAX_ENV:
+                        try:
+                            self.client.build_env(eid)
+                            for _ in range(30):
+                                time.sleep(2)
+                                detail = self.client.exercise(eid) or {}
+                                if not detail.get("isNeedCheck") and detail.get("endpoints"):
+                                    built_count += 1
+                                    break
+                        except ApiError as e:
+                            detail["_env_error"] = str(e)
+                    else:
+                        detail["_env_wait"] = f"靶机配额已满({MAX_ENV}台)，等待回收后自动启动"
+                endpoints = detail.get("endpoints") or []
+                first_conn, conn_text = self._conn_text(endpoints)
+                desc = str(detail.get("description") or "")
+                if detail.get("_error"):
+                    desc = (desc + f"\n[题目详情获取失败: {detail['_error']}]").strip()
+                if detail.get("_env_error"):
+                    desc = (desc + f"\n[靶机环境启动失败: {detail['_env_error']}]").strip()
+                if detail.get("_env_wait"):
+                    desc = (desc + f"\n[{detail['_env_wait']}]").strip()
+                if conn_text:
+                    desc = (desc + "\n\n【靶机连接信息】\n" + conn_text).strip()
+                files = [str(f.get("name", "")) for f in _attachment_files(detail.get("attachment"))
+                         if f.get("name")]
+                host = port = None
+                if first_conn and ":" in first_conn:
+                    h, _, pp = first_conn.rpartition(":")
+                    host, port = h, (int(pp) if pp.isdigit() else None)
+                out.append(NormalizedChallenge(
+                    platform=self.name,
+                    challenge_id=str(eid),
+                    name=str(detail.get("name") or c.get("name") or ""),
+                    category=cat,
+                    description=desc,
+                    points=_to_float(detail.get("score")),
+                    solved=solved,
+                    files=files,
+                    target_kind="remote" if (endpoints or detail.get("isNeedInit")) else "static",
+                    host=host,
+                    port=port,
+                    raw={**detail, "_category": cat},
+                ))
         return out
 
     def download_attachments(self, challenge: NormalizedChallenge, dest_dir: Path) -> list[Path]:
-        p = self.client.download_attachment(challenge.challenge_id, dest_dir)
-        return [p] if p else []
+        paths: list[Path] = []
+        for f in _attachment_files((challenge.raw or {}).get("attachment")):
+            url = str(f.get("url") or "")
+            if not url:
+                continue
+            if url.startswith("/"):
+                url = self.base_url + url
+            p = self.client.download(url, dest_dir, str(f.get("name") or ""))
+            if p:
+                paths.append(p)
+        return paths
 
     def submit_flag(self, challenge: NormalizedChallenge, flag: str) -> SubmitResult:
-        data = self.client.submit(challenge.challenge_id, flag)
-        accepted = bool(data.get("correct") or data.get("success"))
-        return SubmitResult(accepted=accepted, message=str(data.get("msg", "")), raw=data)
+        from dasctf_client import ApiError
+        try:
+            data = self.client.submit_answer(int(challenge.challenge_id), _strip_flag(flag))
+            ok = bool(data.get("isCorrect"))
+            return SubmitResult(accepted=ok, message="correct" if ok else "wrong", raw=data)
+        except ApiError as e:
+            return SubmitResult(accepted=False, message=f"{e.code}: {e.message}", raw={})
+
+    def scoreboard(self) -> list[dict[str, Any]]:
+        try:
+            ov = self.client.overview()
+            return [{"rank": ov.get("stageRank"), "point": ov.get("stagePoint")}]
+        except Exception:
+            return []

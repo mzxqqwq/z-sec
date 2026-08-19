@@ -199,8 +199,13 @@ def raw_llm(model: str) -> dict[str, str]:
     key = have.get(pid) or os.environ.get(str(p.get("api_key_env", "")), "").strip()
     if not key and pid == "deepseek":
         key = deepseek_api_key()
+    # 比赛模式 LLM 端点覆盖：DASCTF_LLM_BASE_URL 设置时（match_admin 启动编排器注入），
+    # base_url 切到本地网关代理 127.0.0.1:8787（→ 平台大模型网关）。agent.json 保持
+    # 干净默认（api.deepseek.com），benchmark 直连不受影响。
+    base_url = os.environ.get("DASCTF_LLM_BASE_URL", "").strip() \
+        or str(p.get("base_url") or "https://api.deepseek.com")
     return {
-        "base_url": str(p.get("base_url") or "https://api.deepseek.com"),
+        "base_url": base_url,
         "api_key": key,
     }
 

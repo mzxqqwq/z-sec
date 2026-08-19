@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, Mode, SessionInfo, Summary } from "./api"
+import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, MatchStatus, Mode, SessionInfo, Summary } from "./api"
 import {
   archiveSession, fetchAudit, fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest,
-  fetchKaliStatus, fetchSessionHistory, fetchState, postConfirm, postHint, postVerify,
-  resumeBench, startBench, stopBench,
+  fetchKaliStatus, fetchMatchStatus, fetchSessionHistory, fetchState, postConfirm, postHint, postVerify,
+  resumeBench, startBench, startMatch, stopBench, stopMatch,
 } from "./api"
 import type { AuditReport } from "./api"
 import FullTranscript from "./components/FullTranscript"
@@ -452,6 +452,71 @@ function BenchPage() {
   )
 }
 
+// ---------- 比赛模式页（真实平台 dasctf，LLM 走大模型网关） ----------
+function MatchPage() {
+  const [status, setStatus] = useState<MatchStatus>({ status: "idle", elapsed: 0, log_tail: "" })
+  const [loop, setLoop] = useState(10800)
+  const [msg, setMsg] = useState("")
+  const [busy, setBusy] = useState(false)
+  const poll = async () => {
+    try { setStatus(await fetchMatchStatus()) } catch { /* 忽略瞬时错误 */ }
+  }
+  useEffect(() => {
+    poll()
+    const t = setInterval(poll, 5000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const running = status.status === "running"
+  const doStart = async () => {
+    setBusy(true)
+    const r = await startMatch(loop)
+    setMsg(r.msg); setBusy(false); poll()
+  }
+  const doStop = async () => {
+    setBusy(true)
+    const r = await stopMatch()
+    setMsg(r.msg); setBusy(false); poll()
+  }
+  const ST: Record<string, string> = { running: "运行中", idle: "空闲", done: "已结束", failed: "失败" }
+  return (
+    <div className="panel">
+      <div className="run-panel">
+        <div className="run-head">
+          <span className={`run-badge`}>{ST[status.status] ?? status.status}</span>
+          {running && status.pid && (
+            <span className="muted">pid {status.pid} · 已运行 {Math.floor(status.elapsed)}s</span>
+          )}
+          {!running && status.exit_code != null && <span className="muted">退出码 {status.exit_code}</span>}
+        </div>
+        <div className="bench-stats" style={{ margin: "10px 0" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            循环时长（秒，0=单轮）
+            <input type="number" min={0} step={60} value={loop}
+              onChange={(e) => setLoop(Number(e.target.value) || 0)}
+              style={{ width: 130, padding: "4px 8px", background: "transparent", color: "inherit",
+                       border: "1px solid var(--border, #333)", borderRadius: 6 }} />
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <button className="btn btn-primary" disabled={running || busy} onClick={doStart}>
+            {busy ? "处理中…" : "启动比赛 Agent"}
+          </button>
+          <button className="btn btn-danger" disabled={!running || busy} onClick={doStop}>停止</button>
+        </div>
+        {msg && <div className="muted" style={{ marginBottom: 8 }}>{msg}</div>}
+        {status.log_tail && <pre className="run-log">{status.log_tail}</pre>}
+      </div>
+      <p className="muted" style={{ marginTop: 12, lineHeight: 1.7 }}>
+        比赛模式：连真实平台（gcsis.dasctf.com），题目状态在「比赛看板」页查看、写 hints。
+        前置要求：① 大模型网关本地代理已启动（<code>python src\dasctf_client\gateway_proxy.py</code>）；
+        ② <code>config/secrets.json</code> dasctf 段已配置 access_key 与 gateway_url。
+        停止后重启会保留进度（已解出的题不重跑）。
+      </p>
+    </div>
+  )
+}
+
 // ---------- 题目详情（主/bench 共用） ----------
 function Detail({ cid, mode, runId, sessionId, onBack }: {
   cid: string; mode: Mode; runId?: string; sessionId?: string; onBack: () => void
@@ -585,7 +650,7 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
 }
 
 export default function App() {
-  const [nav, setNav] = useState<"main" | "bench" | "config">("main")
+  const [nav, setNav] = useState<"main" | "match" | "bench" | "config">("main")
   const [cfgToast, setCfgToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
   return (
     <div className="layout">
@@ -594,6 +659,8 @@ export default function App() {
         <ul className="side-nav">
           <li><button className={nav === "main" ? "active" : ""} onClick={() => setNav("main")}>
             <span className="nav-icon">✦</span>比赛看板</button></li>
+          <li><button className={nav === "match" ? "active" : ""} onClick={() => setNav("match")}>
+            <span className="nav-icon">▶</span>比赛 Agent</button></li>
           <li><button className={nav === "bench" ? "active" : ""} onClick={() => setNav("bench")}>
             <span className="nav-icon">◈</span>Benchmark 跑分</button></li>
           <li><button className={nav === "config" ? "active" : ""} onClick={() => setNav("config")}>
@@ -601,7 +668,7 @@ export default function App() {
         </ul>
       </aside>
       <main className="content">
-        {nav === "main" ? <Overview /> : nav === "bench" ? <BenchPage /> : (
+        {nav === "main" ? <Overview /> : nav === "match" ? <MatchPage /> : nav === "bench" ? <BenchPage /> : (
           <ConfigPage toast={(msg, kind) => setCfgToast({ msg, kind })} />
         )}
       </main>

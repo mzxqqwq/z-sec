@@ -30,7 +30,7 @@
     {
       "base_url": "https://api.deepseek.com",
       "id": "deepseek",
-      "label": "DeepSeek",
+      "label": "DeepSeek（比赛模式经 DASCTF_LLM_BASE_URL 覆盖走网关代理）",
       "models": [
         "deepseek-v4-pro",
         "deepseek-v4-flash",

@@ -432,6 +432,29 @@ def api_bench_stop():
     return jsonify({"ok": ok, "msg": msg})
 
 
+# ---- 比赛模式（真实平台 dasctf，LLM 走大模型网关）----
+@app.get("/api/match/status")
+def api_match_status():
+    import match_admin
+    return jsonify(match_admin.status())
+
+
+@app.post("/api/match/run")
+def api_match_run():
+    import match_admin
+    body = request.get_json(silent=True) or {}
+    loop = int(body.get("loop") or 10800)
+    ok, msg = match_admin.start(loop)
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@app.post("/api/match/stop")
+def api_match_stop():
+    import match_admin
+    ok, msg = match_admin.stop()
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @app.post("/api/bench/resume/<run_id>")
 def api_bench_resume(run_id: str):
     ok, msg = bench_admin.resume(run_id)
