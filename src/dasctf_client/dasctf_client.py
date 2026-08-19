@@ -190,16 +190,32 @@ class DasctfClient:
         return self._ok("GET", "/match/notice/detail", params={"id": int(notice_id)}) or {}
 
     def download(self, url: str, dest_dir: Path, name: str = "") -> Optional[Path]:
-        """下载附件（attachment.files[].url 或公告 url）。"""
+        """下载附件（attachment.files[].url 或公告 url）。
+
+        实测（2026-08-19）：附件 URL 带时效签名，编排器每轮 _run_one 都会重复下载，
+        平台附件服务器会限流/重置连接（10054）。策略：目标文件已存在且非空 → 直接复用；
+        下载失败 → 指数退避重试 3 次。
+        """
         dest_dir.mkdir(parents=True, exist_ok=True)
         if not name:
             name = url.rstrip("/").split("/")[-1] or f"file_{int(time.time())}"
-        r = self.session.get(url, timeout=60, allow_redirects=True)
-        if r.status_code != 200:
-            return None
         path = dest_dir / name
-        path.write_bytes(r.content)
-        return path
+        if path.exists() and path.stat().st_size > 0:
+            return path
+        last: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                r = self.session.get(url, timeout=60, allow_redirects=True)
+                if r.status_code == 200:
+                    path.write_bytes(r.content)
+                    return path
+                return None
+            except requests.RequestException as e:
+                last = e
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+        print(f"[dasctf] attachment download failed after retries: {last}")
+        return None
 
 
 # ---------------------------------------------------------------------------

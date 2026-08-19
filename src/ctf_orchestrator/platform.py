@@ -251,10 +251,12 @@ class DasctfPlatform(BasePlatform):
         except ApiError as e:
             print(f"[dasctf] exercise-list 失败: {e}")
             return out
-        # 靶机配额：本队同时最多 3 台（实测 40409）。已建 = 有 endpoints 的题。
+        # 靶机配额：本队同时最多 3 台（实测 40409）。
+        # 活跃占用 = 未 solved 且有 endpoints 的题；solved 题的环境应让出配额。
         MAX_ENV = 3
-        built_count = 0
         details: dict[int, dict] = {}
+        solved_ids: set[int] = set()
+        built_count = 0
         for g in groups:
             for c in (g.get("corpus") or []):
                 try:
@@ -267,8 +269,22 @@ class DasctfPlatform(BasePlatform):
                 except ApiError as e:
                     d = {"_error": str(e)}
                 details[eid] = d
-                if d.get("endpoints"):
+                if bool(d.get("hasSolved") or c.get("hasSolved")):
+                    solved_ids.add(eid)
+                if not bool(d.get("hasSolved") or c.get("hasSolved")) and d.get("endpoints"):
                     built_count += 1
+        for eid in solved_ids:
+            d = details.get(eid) or {}
+            if d.get("isNeedInit") and d.get("endpoints"):
+                try:
+                    self.client.recover_env(eid)
+                    print(f"[dasctf] {eid} 已解出，回收环境释放配额")
+                except ApiError:
+                    pass
+                try:
+                    details[eid] = self.client.exercise(eid) or {}
+                except ApiError:
+                    pass
         for g in groups:
             cat = str(g.get("name") or "misc").lower()
             for c in (g.get("corpus") or []):
@@ -278,19 +294,8 @@ class DasctfPlatform(BasePlatform):
                     continue
                 detail = dict(details.get(eid) or {})
                 solved = bool(detail.get("hasSolved") or c.get("hasSolved"))
-                # 已解出且占着环境 → 回收配额
-                if solved and detail.get("isNeedInit") and detail.get("endpoints"):
-                    try:
-                        self.client.recover_env(eid)
-                        built_count = max(0, built_count - 1)
-                    except ApiError:
-                        pass
-                    try:
-                        detail = self.client.exercise(eid) or {}
-                    except ApiError:
-                        pass
-                # 需要环境且未就绪 → 配额内启动并轮询
-                if (detail.get("isNeedInit") and not detail.get("endpoints")
+                # 需要环境且未就绪（仅未解出的题）→ 配额内启动并轮询
+                if (not solved and detail.get("isNeedInit") and not detail.get("endpoints")
                         and not detail.get("_error")):
                     if built_count < MAX_ENV:
                         try:
