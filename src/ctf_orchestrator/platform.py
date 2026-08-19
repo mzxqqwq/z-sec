@@ -198,6 +198,16 @@ class DasctfPlatform(BasePlatform):
 
     name = "dasctf"
 
+    @staticmethod
+    def _probe_port(host: str, port: int, timeout: float = 2.0) -> bool:
+        """快速 TCP 探测（靶机/代理端口是否可达）。"""
+        import socket
+        try:
+            with socket.create_connection((host, int(port)), timeout=timeout):
+                return True
+        except Exception:
+            return False
+
     def __init__(self, base_url: str) -> None:
         import os
         import sys
@@ -252,10 +262,12 @@ class DasctfPlatform(BasePlatform):
             print(f"[dasctf] exercise-list 失败: {e}")
             return out
         # 靶机配额：本队同时最多 3 台（实测 40409）。
-        # 活跃占用 = 未 solved 且有 endpoints 的题；solved 题的环境应让出配额。
+        # 活跃占用 = 未 solved 且靶机端口可达的题；solved 题的环境应让出配额；
+        # 端口不可达（Fate 类平台侧故障）→ 回收并标记重建。
         MAX_ENV = 3
         details: dict[int, dict] = {}
         solved_ids: set[int] = set()
+        probe: list[tuple[int, dict, str]] = []  # (eid, detail, first_conn)
         built_count = 0
         for g in groups:
             for c in (g.get("corpus") or []):
@@ -271,8 +283,41 @@ class DasctfPlatform(BasePlatform):
                 details[eid] = d
                 if bool(d.get("hasSolved") or c.get("hasSolved")):
                     solved_ids.add(eid)
-                if not bool(d.get("hasSolved") or c.get("hasSolved")) and d.get("endpoints"):
+                    continue
+                if d.get("endpoints"):
+                    first_conn, _ = self._conn_text(d["endpoints"])
+                    # 只对"平台代理已就绪"的靶机探测连通性（isProxy=true 且 proxyIps 非空）；
+                    # 内网 IP/创建中的环境（proxyIps 空）外部不可达不代表靶机死 → 只算占用不探测
+                    proxy_ready = any(e.get("isProxy") and e.get("proxyIps")
+                                      for e in d.get("endpoints") or [])
+                    if proxy_ready:
+                        probe.append((eid, d, first_conn or ""))
+                    else:
+                        built_count += 1
+        if probe:
+            from concurrent.futures import ThreadPoolExecutor
+            def _check(t: tuple[int, dict, str]) -> bool:
+                eid, d, conn = t
+                if ":" in conn:
+                    h, _, pp = conn.rpartition(":")
+                    if pp.isdigit() and self._probe_port(h, int(pp)):
+                        return True
+                return False
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                alive_map = {t[0]: ok for t, ok in zip(probe, pool.map(_check, probe))}
+            for eid, d, conn in probe:
+                if alive_map.get(eid):
                     built_count += 1
+                else:
+                    try:
+                        self.client.recover_env(eid)
+                        print(f"[dasctf] {eid} 靶机不可达({conn or '无连接点'})，已回收，下轮重建")
+                    except ApiError:
+                        pass
+                    _d = dict(details.get(eid) or {})
+                    _d["endpoints"] = []
+                    _d["_env_rebuild"] = True
+                    details[eid] = _d
         for eid in solved_ids:
             d = details.get(eid) or {}
             if d.get("isNeedInit") and d.get("endpoints"):
@@ -295,8 +340,9 @@ class DasctfPlatform(BasePlatform):
                 detail = dict(details.get(eid) or {})
                 solved = bool(detail.get("hasSolved") or c.get("hasSolved"))
                 # 需要环境且未就绪（仅未解出的题）→ 配额内启动并轮询
-                if (not solved and detail.get("isNeedInit") and not detail.get("endpoints")
-                        and not detail.get("_error")):
+                if (not solved and not detail.get("endpoints")
+                        and not detail.get("_error")
+                        and (detail.get("isNeedInit") or detail.get("_env_rebuild"))):
                     if built_count < MAX_ENV:
                         try:
                             self.client.build_env(eid)
@@ -317,6 +363,8 @@ class DasctfPlatform(BasePlatform):
                     desc = (desc + f"\n[题目详情获取失败: {detail['_error']}]").strip()
                 if detail.get("_env_error"):
                     desc = (desc + f"\n[靶机环境启动失败: {detail['_env_error']}]").strip()
+                if detail.get("_env_rebuild"):
+                    desc = (desc + "\n[原靶机不可达已回收，正在重建环境]").strip()
                 if detail.get("_env_wait"):
                     desc = (desc + f"\n[{detail['_env_wait']}]").strip()
                 if conn_text:
