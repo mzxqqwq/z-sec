@@ -78,10 +78,32 @@ def status() -> dict[str, Any]:
                 "exit_code": None, "log_tail": _log_tail()}
 
 
+def _gateway_alive(timeout: float = 1.5) -> bool:
+    """探测本地网关代理（127.0.0.1:8787/health）是否存活。"""
+    import socket
+    try:
+        s = socket.create_connection(("127.0.0.1", 8787), timeout=timeout)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
 def start(loop_sec: int = 10800) -> tuple[bool, str]:
     with _lock:
         if _effective_pid():
             return False, "比赛 agent 已在运行（先停止再启动）"
+        if not _gateway_alive():
+            return False, ("大模型网关代理未运行（127.0.0.1:8787）——LLM 必须走平台网关（合规），"
+                           "请先启动：python src\\dasctf_client\\gateway_proxy.py")
+        # 清理上一轮残留的孤儿 worker（dashboard/agent 异常退出时 pi 子进程可能残留）
+        try:
+            from workers import cleanup_orphans
+            n = cleanup_orphans()
+            if n:
+                print(f"[match] cleaned {n} orphan workers")
+        except Exception:
+            pass
         MATCH_WS.mkdir(parents=True, exist_ok=True)
         (MATCH_WS / "run.pid").unlink(missing_ok=True)
         cmd = [sys.executable, "-u", "-X", "utf8", str(ORCH),
@@ -120,6 +142,13 @@ def stop() -> tuple[bool, str]:
         except OSError:
             pass
         _run["proc"] = None
+        try:
+            from workers import cleanup_orphans
+            n = cleanup_orphans()
+            if n:
+                print(f"[match] cleaned {n} orphan workers")
+        except Exception:
+            pass
         return True, "已停止"
 
 
