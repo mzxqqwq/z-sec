@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, MatchStatus, Mode, SessionInfo, Summary } from "./api"
+import type { BenchInfo, BenchRunInfo, BenchStatus, Board, ChallengeView, MatchStatus, Mode, ReportInfo, SessionInfo, Summary } from "./api"
 import {
   archiveSession, fetchAudit, fetchBenchHistory, fetchBenchList, fetchBenchStatus, fetchBoard, fetchDigest,
-  fetchKaliStatus, fetchMatchStatus, fetchSessionHistory, fetchState, postConfirm, postHint, postVerify,
+  fetchKaliStatus, fetchMatchStatus, fetchReportText, fetchReports, fetchSessionHistory, fetchState,
+  generateReport, postConfirm, postHint, postVerify, reportDownloadUrl, reportsZipUrl,
   resumeBench, startBench, startMatch, stopBench, stopMatch,
 } from "./api"
 import type { AuditReport } from "./api"
@@ -517,6 +518,105 @@ function MatchPage() {
   )
 }
 
+// ---------- 解题报告页（导出 md，整理赛后提交材料） ----------
+function ReportsPage() {
+  const [reports, setReports] = useState<ReportInfo[]>([])
+  const [chs, setChs] = useState<ChallengeView[]>([])
+  const [open, setOpen] = useState<string | null>(null)
+  const [viewText, setViewText] = useState("")
+  const [toast, setToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
+  const poll = async () => {
+    try {
+      const [r, s] = await Promise.all([fetchReports(), fetchState("main")])
+      setReports(r.reports); setChs(s)
+    } catch { /* ignore */ }
+  }
+  useEffect(() => {
+    poll()
+    const t = setInterval(poll, 20000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const byCid = new Map(reports.map((r) => [r.cid, r]))
+  const view = async (cid: string) => {
+    setOpen(cid)
+    setViewText("加载中…")
+    setViewText(await fetchReportText(cid))
+  }
+  const doGen = async (cid: string) => {
+    const r = await generateReport(cid)
+    setToast({ msg: r.msg, kind: r.ok ? "ok" : "err" })
+    poll()
+  }
+  return (
+    <div className="panel">
+      <Toast msg={toast.msg} kind={toast.kind} />
+      <div className="run-head" style={{ marginBottom: 12 }}>
+        <span className="panel-card-title">解题报告（赛题 × 已解出 × 导出）</span>
+        <a className="btn btn-primary" style={{ marginLeft: "auto" }} href={reportsZipUrl()}>
+          下载全部 ZIP
+        </a>
+      </div>
+      <p className="muted" style={{ marginBottom: 10, fontSize: 12.5 }}>
+        每道已解出的题自动生成一份 Markdown 解题报告（worker 思考过程 + 最终解法）。可单题查看/下载，或一键打包。
+      </p>
+      <table className="table">
+        <thead>
+          <tr><th>题目</th><th>分类</th><th>尝试</th><th>状态</th><th>报告</th><th style={{ textAlign: "right" }}>操作</th></tr>
+        </thead>
+        <tbody>
+          {chs.map((c) => {
+            const rep = byCid.get(c.cid)
+            const solved = c.status === "solved"
+            return (
+              <tr key={c.cid}>
+                <td>{c.name}</td>
+                <td>{c.category}</td>
+                <td>{c.attempts}</td>
+                <td><StarBadge status={c.status} /></td>
+                <td>{solved ? (rep ? "已生成 ✓" : "待生成") : "未解出"}</td>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  {solved && (
+                    <>
+                      <button className="btn btn-sm" disabled={!rep} onClick={() => rep && view(rep.cid)}>查看</button>{" "}
+                      <a className={`btn btn-sm ${rep ? "btn-primary" : ""}`} href={reportDownloadUrl(c.cid)} download
+                        onClick={() => !rep && doGen(c.cid)}>
+                        {rep ? "下载" : "生成"}
+                      </a>
+                    </>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+          {chs.length === 0 && (
+            <tr><td colSpan={6} className="muted" style={{ textAlign: "center" }}>启动比赛 Agent 后题目会出现在这里</td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {open && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 100,
+                      display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: "#14161f", border: "1px solid var(--border, #333)", borderRadius: 12,
+                        width: "min(920px, 94vw)", maxHeight: "86vh", display: "flex", flexDirection: "column" }}>
+            <div className="run-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border, #333)" }}>
+              <span className="panel-card-title">解题报告：{open}</span>
+              <a className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }}
+                href={reportDownloadUrl(open)} download>下载 md</a>
+              <button className="btn btn-sm" onClick={() => setOpen(null)}>关闭</button>
+            </div>
+            <pre style={{ margin: 0, padding: 16, overflow: "auto", whiteSpace: "pre-wrap",
+                          fontFamily: "var(--font-mono, monospace)", fontSize: 12.5, lineHeight: 1.6 }}>
+              {viewText}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---------- 题目详情（主/bench 共用） ----------
 function Detail({ cid, mode, runId, sessionId, onBack }: {
   cid: string; mode: Mode; runId?: string; sessionId?: string; onBack: () => void
@@ -578,6 +678,12 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
               title={challenge.revived ? `远程服务 ${challenge.connection}（容器已起）` : `远程服务 ${challenge.connection}`}>
               {challenge.revived ? "靶机·容器" : "靶机"} {challenge.connection}
             </span>
+          )}
+          {challenge?.status === "solved" && (
+            <a className="btn btn-sm" style={{ marginLeft: 4 }} href={reportDownloadUrl(cid)} download
+              title="下载该题解题报告（md）">
+              ↓ 下载报告
+            </a>
           )}
           <span className="muted" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
             ⏱ {fmtElapsed(challenge?.elapsed ?? 0)} · ◈ {fmtTokens(challenge?.tokens ?? 0)} · ¥ {(challenge?.cost ?? 0).toFixed(4)}
@@ -650,7 +756,7 @@ function Detail({ cid, mode, runId, sessionId, onBack }: {
 }
 
 export default function App() {
-  const [nav, setNav] = useState<"main" | "match" | "bench" | "config">("main")
+  const [nav, setNav] = useState<"main" | "match" | "bench" | "reports" | "config">("main")
   const [cfgToast, setCfgToast] = useState<{ msg: string; kind?: "ok" | "err" }>({ msg: "" })
   return (
     <div className="layout">
@@ -661,6 +767,8 @@ export default function App() {
             <span className="nav-icon">✦</span>比赛看板</button></li>
           <li><button className={nav === "match" ? "active" : ""} onClick={() => setNav("match")}>
             <span className="nav-icon">▶</span>比赛 Agent</button></li>
+          <li><button className={nav === "reports" ? "active" : ""} onClick={() => setNav("reports")}>
+            <span className="nav-icon">📄</span>解题报告</button></li>
           <li><button className={nav === "bench" ? "active" : ""} onClick={() => setNav("bench")}>
             <span className="nav-icon">◈</span>Benchmark 跑分</button></li>
           <li><button className={nav === "config" ? "active" : ""} onClick={() => setNav("config")}>
@@ -668,9 +776,10 @@ export default function App() {
         </ul>
       </aside>
       <main className="content">
-        {nav === "main" ? <Overview /> : nav === "match" ? <MatchPage /> : nav === "bench" ? <BenchPage /> : (
-          <ConfigPage toast={(msg, kind) => setCfgToast({ msg, kind })} />
-        )}
+        {nav === "main" ? <Overview /> : nav === "match" ? <MatchPage /> :
+          nav === "reports" ? <ReportsPage /> : nav === "bench" ? <BenchPage /> : (
+            <ConfigPage toast={(msg, kind) => setCfgToast({ msg, kind })} />
+          )}
       </main>
       {cfgToast.msg && <Toast msg={cfgToast.msg} kind={cfgToast.kind} />}
     </div>

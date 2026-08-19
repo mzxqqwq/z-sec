@@ -249,6 +249,35 @@ export async function stopMatch(): Promise<{ ok: boolean; msg: string }> {
   return await r.json()
 }
 
+// ---- 解题报告（report_writer）----
+export interface ReportInfo {
+  cid: string
+  name: string
+  size: number
+  mtime: number
+}
+
+export async function fetchReports(): Promise<{ reports: ReportInfo[]; missing: string[] }> {
+  const r = await fetch("/api/reports")
+  if (!r.ok) return { reports: [], missing: [] }
+  return await r.json()
+}
+
+export async function generateReport(cid: string): Promise<{ ok: boolean; msg: string }> {
+  const r = await fetch(`/api/reports/${encodeURIComponent(cid)}/generate`, { method: "POST" })
+  return await r.json()
+}
+
+export async function fetchReportText(cid: string): Promise<string> {
+  const r = await fetch(`/api/reports/${encodeURIComponent(cid)}`)
+  if (!r.ok) return "（报告不存在或尚未生成）"
+  const d = await r.json()
+  return d.text ?? ""
+}
+
+export const reportDownloadUrl = (cid: string) => `/api/reports/${encodeURIComponent(cid)}/download`
+export const reportsZipUrl = () => "/api/reports/download-all"
+
 export interface AuditReport {
   run_id: string
   summary: { clean: number; osint: number; cheat: number; total: number }

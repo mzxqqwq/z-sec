@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from string import Template
 
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_file, send_from_directory
 
 app = Flask(__name__)
 WORKSPACE: Path = Path("D:/ctf-agent/workspace")
@@ -486,6 +486,40 @@ def api_report_generate(cid: str):
     import report_writer
     ok, msg = report_writer.generate_one(cid, WORKSPACE, force=False)
     return jsonify({"ok": ok, "msg": msg})
+
+
+@app.get("/api/reports/<cid>/download")
+def api_report_download(cid: str):
+    """下载单题解题报告（md）。报告缺失时先尝试生成。"""
+    import report_writer
+    p = WORKSPACE / report_writer.REPORTS_DIR / f"{cid}.md"
+    if not p.exists():
+        ok, msg = report_writer.generate_one(cid, WORKSPACE, force=False)
+        if not ok:
+            return jsonify({"ok": False, "msg": msg}), 404
+    return send_file(p, as_attachment=True, download_name=f"dasctf-{cid}.md",
+                     mimetype="text/markdown")
+
+
+@app.get("/api/reports/download-all")
+def api_reports_download_all():
+    """打包全部解题报告为 zip（先补生成缺失）。"""
+    import io
+    import zipfile
+    import report_writer
+    try:
+        report_writer.scan(WORKSPACE)
+    except Exception as e:
+        print(f"[report] download-all 预生成失败: {e}")
+    reports = WORKSPACE / report_writer.REPORTS_DIR
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        if reports.is_dir():
+            for f in sorted(reports.glob("*.md")):
+                z.write(f, f.name)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="dasctf-reports.zip",
+                     mimetype="application/zip")
 
 
 @app.post("/api/bench/resume/<run_id>")
