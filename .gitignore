@@ -37,3 +37,5 @@ src/tools/worker-img/*.tgz
 workspace-match/
 
 docs/_archive/
+
+*.bak
