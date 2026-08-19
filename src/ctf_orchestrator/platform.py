@@ -184,11 +184,16 @@ def _parse_port(p: str) -> str:
 
 def _attachment_files(attachment: Any) -> list[dict]:
     """兼容实际返回的多种附件结构：
-    {files:[{name,url,ext}]}（文档示例） / 单对象 {url,name,extension}（实测） / [] / 数组。"""
+    {files:[{name,url,ext}]}（文档示例） / 单对象 {url,name,extension}（实测） / [] / 数组。
+    审查补丁：files 为空列表但顶层带 url 时（组合形态）也要取顶层，否则附件漏下载。
+    """
     if isinstance(attachment, dict):
         files = attachment.get("files")
         if isinstance(files, list):
-            return [f for f in files if isinstance(f, dict)]
+            out = [f for f in files if isinstance(f, dict)]
+            if out or not attachment.get("url"):
+                return out
+            return [attachment]
         if attachment.get("url"):
             return [attachment]
         return []
@@ -309,8 +314,11 @@ class DasctfPlatform(BasePlatform):
                 eid, d, conn = t
                 if ":" in conn:
                     h, _, pp = conn.rpartition(":")
-                    if pp.isdigit() and self._probe_port(h, int(pp)):
-                        return True
+                    if pp.isdigit():
+                        # 探测带 1 次重试（瞬时抖动会误回收可用靶机——审查建议）
+                        if self._probe_port(h, int(pp)):
+                            return True
+                        return self._probe_port(h, int(pp))
                 return False
             with ThreadPoolExecutor(max_workers=4) as pool:
                 alive_map = {t[0]: ok for t, ok in zip(probe, pool.map(_check, probe))}
