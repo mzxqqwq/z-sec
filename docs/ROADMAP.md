@@ -44,24 +44,27 @@
 - [x] `docs/RACEDAY.md` 全面更新（启动命令、网关硬门禁、提交纪律、时间策略、速查）
 - [x] `docs/SECRETS-CHECKLIST.md` 补 dasctf 账号段说明
 
-## 五、阶段 1（8/18 09:00）——平台对接
+## 五、阶段 1（8/18 09:00）——平台对接 ✅ 2026-08-19 完成
 
-- 登录 `gcsis.dasctf.com`（账号见 `config/secrets.json` dasctf 段）。
-- 文档中心导出《API 接入说明》《大模型网关接入》。
-- 【运行环境】页配置 BASEURL 白名单 URL + 同步平台 accesskey。
-- 用抓包/文档确认：认证形态（cookie / token / accesskey）、真实 API 路径（补全 `dasctf_client.EP`）、flag 剥壳规则、动态靶机开启/关闭协议。
+- [x] 登录 `gcsis.dasctf.com`，拿到 Agent AccessKey 与网关 URL（控制台「环境配置」页）
+- [x] 文档中心《AI Agent API 文档》《大模型网关接入》已落地（`dasctf_client.py` v0.2 重写 + `PLATFORM-API.md` 回填）
+- [x] `config/secrets.json` dasctf 段：access_key + gateway_url 已配置
+- [x] 白名单原始 URL 仅 4 个 DeepSeek 端点（/chat/completions 等）——网关 URL 须 POST 根路径
 
-## 六、阶段 2——平台闭环验证
+## 六、阶段 2——平台闭环验证 ✅ 2026-08-19 完成
 
-- 平台闭环 + 大模型网关闭环（**网关验证通过前不试打**）。
-- flag 剥壳实测（`DASCTF{...}` / `flag{...}` → 提交 `{}` 内内容）。
-- 提交限频纪律落地：每题 50 次上限、最小间隔、错误预算。
+- [x] API 闭环：exercise-list→exercise→build-env→answer 全通（X-Agent-AccessKey 认证）
+- [x] 大模型网关闭环：POST 网关根 200（deepseek-chat/v4-pro/v4-flash），经本地代理 8787
+- [x] flag 剥壳实测：提交 `DASCTF{...}` 完整格式判错，`{}` 内内容才正确（内置 `_strip_flag`）
+- [x] 靶机协议：每队最多 3 台（40409），`isProxy` 代理连接（proxyIps:port），solved 自动回收
+- [x] 附件实测：单对象 `{url,name,extension}` 结构（非文档的 files 数组），已兼容
 
-## 七、阶段 3（8/18–19）——小规模试打
+## 七、阶段 3（8/18–19）——小规模试打 ✅ 进行中
 
-- host 模式（bench_mode=False），全网络允许搜索。
-- 试打 2–4 题，校准：模型参数、并行度、超时、提交策略。
-- 初赛配置定稿（写入 `config/agent.json`）。
+- [x] 编排器连真实平台端到端：7 题拉取、附件下载、worker 经网关解题（10661 已 solved）
+- [x] **UI「比赛 Agent」页**：启动/停止/状态/日志（`/api/match/*` + match_admin）
+- [x] LLM 网关合规：`DASCTF_LLM_BASE_URL` env 覆盖（比赛走 8787 代理，benchmark 直连）
+- [ ] 初赛配置定稿（观察试打表现后微调模型/并行/超时）
 
 ## 八、阶段 4（8/21）——初赛
 
